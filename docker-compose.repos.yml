@@ -1,0 +1,4 @@
+services:
+  codexmgr:
+    volumes:
+      - ${CODEXMGR_HOST_REPO_ROOT}:${CODEXMGR_CONTAINER_REPO_ROOT}

@@ -1,0 +1,24 @@
+services:
+  codexmgr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codex-session-manager
+    environment:
+      CODEXMGR_HOME: ${CODEXMGR_CONTAINER_HOME:-/data}
+      CODEXMGR_UI_HOST: 0.0.0.0
+      CODEXMGR_UI_PORT: "8790"
+      CODEXMGR_IN_DOCKER: "1"
+      CODEXMGR_DOCKER_SERVICE: codexmgr
+      RUNNER_BASE_URL: ${RUNNER_BASE_URL:-}
+      RUNNER_API_KEY: ${RUNNER_API_KEY:-}
+    ports:
+      - "8791:8790"
+    volumes:
+      - ${CODEXMGR_HOST_HOME:-codexmgr_data}:${CODEXMGR_CONTAINER_HOME:-/data}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  codexmgr_data:
