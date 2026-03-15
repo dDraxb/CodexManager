@@ -250,6 +250,27 @@ def test_reconcile_once_marks_missing_tmux_session_as_detached(configured_module
     assert len(attachment_events) == 1
 
 
+def test_reconcile_once_does_not_wake_newly_adopted_session_without_output(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import adopt_session, get_session
+
+    runner = RecordingRunner(str(git_repo), session_exists=False)
+
+    session = adopt_session(
+        name="adopted-idle-session",
+        codex_session_id="cdx_123",
+        repo_path=str(git_repo),
+        runner=runner,
+    )
+
+    touched = reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert touched == 0
+    assert refreshed is not None
+    assert refreshed.status == "idle"
+
+
 def test_reconcile_once_moves_idle_session_to_running_on_new_pane_output(configured_modules, git_repo):
     from app.models.session import SessionStatus
     from app.monitoring.reconciler import reconcile_once

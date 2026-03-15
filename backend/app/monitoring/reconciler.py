@@ -20,6 +20,8 @@ def _file_age_seconds(path: str) -> int | None:
     p = Path(path)
     if not p.exists():
         return None
+    if p.stat().st_size == 0:
+        return None
     mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=UTC)
     return int((datetime.now(UTC) - mtime).total_seconds())
 
