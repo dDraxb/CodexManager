@@ -73,17 +73,22 @@ def _transition_status(session: SessionRecord, new_status: SessionStatus, *, not
         raise SessionError(f"invalid transition: {old} -> {new_status.value}")
 
     now = _now_iso()
+    needs_attention = int(
+        new_status.value in {"failed", "lost", "waiting_input"}
+        or session.test_status == "failed"
+        or session.lint_status == "failed"
+    )
     with get_conn() as conn:
         conn.execute(
             """
             UPDATE sessions
             SET status = ?, last_activity_at = ?, last_known_activity = ?,
                 finished_at = CASE WHEN ? IN ('finished','failed','stopped') THEN COALESCE(finished_at, ?) ELSE finished_at END,
-                needs_attention = CASE WHEN ? IN ('failed','lost','waiting_input') THEN 1 ELSE 0 END,
+                needs_attention = ?,
                 updated_at = ?
             WHERE id = ?
             """,
-            (new_status.value, now, note, new_status.value, now, new_status.value, now, session.id),
+            (new_status.value, now, note, new_status.value, now, needs_attention, now, session.id),
         )
         row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
     _event(session.id, "status_changed", f"{old} -> {new_status.value}", {"note": note})

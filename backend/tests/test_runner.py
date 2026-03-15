@@ -313,6 +313,49 @@ def test_reconcile_once_updates_attachment_state(configured_modules, git_repo):
     assert refreshed.last_attached_at is not None
 
 
+def test_reconcile_once_updates_validation_status_and_attention(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session, list_events
+
+    class ValidationRunner(RecordingRunner):
+        def capture_pane(self, session_name: str, tail: int = 200) -> list[str]:
+            self.calls.append(("capture_pane", session_name, tail))
+            return [
+                "$ pytest",
+                "============================== 4 passed in 0.20s ==============================",
+                "$ ruff check .",
+                "Would reformat: backend/app/api/server.py",
+                "Found 1 error.",
+            ]
+
+    runner = ValidationRunner(str(git_repo), session_exists=True)
+
+    session = create_managed_session(
+        name="validation-session",
+        repo_path=str(git_repo),
+        profile="read-only",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+
+    reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert refreshed is not None
+    assert refreshed.test_status == "passed"
+    assert refreshed.lint_status == "failed"
+    assert refreshed.needs_attention == 1
+
+    events = list_events(session.id)
+    validation_events = [event.message for event in events if event.type == "validation_changed"]
+    assert "Tests passed" in validation_events
+    assert "Lint failed" in validation_events
+
+
 def test_reconcile_once_does_not_wake_idle_session_on_attachment_only(configured_modules, git_repo):
     from app.models.session import SessionStatus
     from app.monitoring.reconciler import reconcile_once

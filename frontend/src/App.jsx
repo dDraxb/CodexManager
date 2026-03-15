@@ -49,6 +49,23 @@ function attachmentBadgeClass(state) {
   return state === 'attached' ? 'badge badge-attached' : 'badge badge-detached'
 }
 
+function validationBadgeClass(status) {
+  const map = {
+    passed: 'badge badge-running',
+    failed: 'badge badge-failed',
+    running: 'badge badge-waiting',
+    unknown: 'badge badge-stopped'
+  }
+  return map[status] || 'badge badge-stopped'
+}
+
+function validationLabel(kind, status) {
+  if (status === 'unknown') {
+    return kind === 'tests' ? 'no test detected' : 'no lint detected'
+  }
+  return `${kind} ${status}`
+}
+
 function formatError(err) {
   return err instanceof Error ? err.message : 'Unexpected request error'
 }
@@ -683,6 +700,10 @@ export default function App() {
           <p>{detail?.last_known_activity || 'No activity yet'}</p>
           <p className="muted">Updated {detail?.updated_at || '-'}</p>
           <p className="muted">Output lines: {logs.length}</p>
+          <div className="row validation-row">
+            <span className={validationBadgeClass(detail?.test_status || 'unknown')}>{validationLabel('tests', detail?.test_status || 'unknown')}</span>
+            <span className={validationBadgeClass(detail?.lint_status || 'unknown')}>{validationLabel('lint', detail?.lint_status || 'unknown')}</span>
+          </div>
         </article>
 
         <article className="card">
@@ -739,6 +760,7 @@ export default function App() {
                 </div>
                 <p>{session.target_label} · {session.profile}</p>
                 <p className="muted">{session.branch || '(no branch)'} · {session.changed_files_count} changed</p>
+                <p className="muted">{validationLabel('tests', session.test_status || 'unknown')} · {validationLabel('lint', session.lint_status || 'unknown')}</p>
                 <p className="muted">{session.last_known_activity || '-'}</p>
               </button>
             ))}

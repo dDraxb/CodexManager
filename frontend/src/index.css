@@ -557,6 +557,11 @@ p {
   gap: 8px;
 }
 
+.validation-row {
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 .between {
   justify-content: space-between;
 }

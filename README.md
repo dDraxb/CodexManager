@@ -114,6 +114,14 @@ Stop:
 docker compose down
 ```
 
+Repeatable end-to-end smoke for the Docker dashboard + host runner path:
+
+```bash
+./bin/smoke_stack.sh
+```
+
+The smoke script starts a temporary host runner with a deterministic dummy Codex command, launches the dashboard on a separate host port, creates a temporary git repo, exercises `start -> open -> stop -> bulk-delete`, and then tears everything down.
+
 ## Notes
 
 - `tmux` is required for live launch/open/resume behavior.

@@ -69,6 +69,7 @@ Design intent:
 - managed vs adopted session mode
 - attachment presence (`attached` / `detached`)
 - output activity tracking via pane fingerprinting
+- basic inferred validation telemetry for tests and lint from recent session output
 
 ### Status model
 Implemented statuses:
@@ -116,6 +117,7 @@ Current status behavior is substantially improved:
 - unit and integration tests for runner abstraction and status transitions
 - tests for CLI/API flows
 - repeated live smoke validation against real tmux/docker flows
+- repeatable full-stack smoke script for Docker dashboard + host runner mode
 
 ---
 
@@ -143,22 +145,7 @@ This was the main unresolved issue in the older handoff and is now done.
 
 These are real remaining items, not already-finished work.
 
-### 1. Stronger automated end-to-end validation
-We have good tests and live smoke checks, but there is still room for:
-- formal end-to-end Docker dashboard + host runner tests
-- more repeatable smoke automation around attach/detach/status transitions
-
-### 2. Richer validation/test telemetry
-The original product ambition included more visibility into validation state.
-
-Current implementation has only limited validation fields.
-Still missing:
-- explicit test run tracking
-- lint run tracking
-- durable validation history
-- richer session-quality signals in the UI
-
-### 3. Better reopen workflow ergonomics
+### 1. Better reopen workflow ergonomics
 Current behavior is:
 - copy attach command
 - user pastes into terminal
@@ -169,7 +156,7 @@ Still possible:
 - optional terminal-launch integration
 - easier one-click resume/open flows where appropriate
 
-### 4. More polished frontend information architecture
+### 2. More polished frontend information architecture
 The dashboard is functional, but there is still room to improve:
 - visual hierarchy
 - density management
@@ -177,13 +164,21 @@ The dashboard is functional, but there is still room to improve:
 - better use of charts and summaries
 - less operator friction for frequent actions
 
-### 5. Better archival and history model
+### 3. Better archival and history model
 We currently treat terminal states and archive view pragmatically.
 Possible future work:
 - explicit archive/unarchive model
 - session retention policies
 - searchable historical sessions
 - better distinction between “completed”, “failed”, and “abandoned”
+
+### 4. Deeper validation intelligence
+Basic validation telemetry now exists, but the more ambitious version is still open:
+- repo-specific validation recipes
+- durable validation history
+- richer pass/fail summaries
+- “changed since last green run” logic
+- broader engineering quality signals
 
 ---
 

@@ -80,6 +80,10 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         except RunnerError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/health")
+    def health() -> dict:
+        return {"ok": True}
+
     @app.post("/resolve-repo-path")
     def resolve_repo_path(request: RepoPathRequest, x_runner_api_key: str | None = Header(default=None)) -> dict:
         require_auth(x_runner_api_key)

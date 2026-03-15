@@ -13,7 +13,7 @@ services:
       RUNNER_BASE_URL: ${RUNNER_BASE_URL:-}
       RUNNER_API_KEY: ${RUNNER_API_KEY:-}
     ports:
-      - "8791:8790"
+      - "${CODEXMGR_HOST_PORT:-8791}:8790"
     volumes:
       - ${CODEXMGR_HOST_HOME:-codexmgr_data}:${CODEXMGR_CONTAINER_HOME:-/data}
     extra_hosts:

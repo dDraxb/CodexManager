@@ -10,6 +10,7 @@ from app.models.session import SessionStatus
 from app.runner.client import get_runner_client
 from app.runner.contracts import RunnerClient, RunnerError
 from app.services.sessions import _event, list_sessions, refresh_git_state, update_status
+from app.services.validation import STATUS_FAILED, analyze_validation
 
 ATTACH_ACTIVITY_GRACE_SECONDS = 15
 
@@ -79,6 +80,66 @@ def _record_attachment_state(session_id: str, attachment_state: str, timestamp: 
         )
 
 
+def _record_validation_state(session_id: str, *, test_status: str, lint_status: str, needs_attention: bool) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET test_status = ?, lint_status = ?, needs_attention = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                test_status,
+                lint_status,
+                1 if needs_attention else 0,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _session_needs_attention(session_status: str, *, test_status: str, lint_status: str) -> bool:
+    if session_status in {SessionStatus.FAILED.value, SessionStatus.LOST.value, SessionStatus.WAITING_INPUT.value}:
+        return True
+    return test_status == STATUS_FAILED or lint_status == STATUS_FAILED
+
+
+def _refresh_validation_state(session, lines: list[str]) -> None:
+    snapshot = analyze_validation(lines)
+    if snapshot.test_status == session.test_status and snapshot.lint_status == session.lint_status:
+        return
+
+    needs_attention = _session_needs_attention(
+        session.status,
+        test_status=snapshot.test_status,
+        lint_status=snapshot.lint_status,
+    )
+    _record_validation_state(
+        session.id,
+        test_status=snapshot.test_status,
+        lint_status=snapshot.lint_status,
+        needs_attention=needs_attention,
+    )
+    if snapshot.test_status != session.test_status:
+        _event(
+            session.id,
+            "validation_changed",
+            f"Tests {snapshot.test_status}",
+            {"kind": "tests", "status": snapshot.test_status},
+        )
+        session.test_status = snapshot.test_status
+    if snapshot.lint_status != session.lint_status:
+        _event(
+            session.id,
+            "validation_changed",
+            f"Lint {snapshot.lint_status}",
+            {"kind": "lint", "status": snapshot.lint_status},
+        )
+        session.lint_status = snapshot.lint_status
+    session.needs_attention = 1 if needs_attention else 0
+
+
 
 def reconcile_once(runner: RunnerClient | None = None) -> int:
     settings = load_settings()
@@ -132,6 +193,7 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
                         session.last_detached_at = timestamp
 
         idle_age = _file_age_seconds(session.log_path)
+        lines: list[str] = []
         if tmux_ok and session.tmux_session:
             try:
                 lines = client.capture_pane(session.tmux_session, tail=40)
@@ -156,6 +218,13 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
             else:
                 pane_idle_age = _iso_age_seconds(session.output_observed_at)
                 idle_age = _min_age(idle_age, pane_idle_age)
+        else:
+            log_path = Path(session.log_path)
+            if log_path.exists():
+                lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+
+        if lines:
+            _refresh_validation_state(session, lines)
         if idle_age is None:
             continue
 
