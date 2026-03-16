@@ -197,6 +197,30 @@ def test_api_logs_uses_runner_pane_for_running_sessions(configured_modules, git_
     assert response.json()["lines"] == ["pane line"]
 
 
+def test_api_open_adopted_session_requires_resume_first(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/adopt",
+        json={
+            "name": "api-adopted",
+            "codexSessionId": "cdx_123",
+            "repoPath": str(git_repo),
+            "profile": "read-only",
+        },
+    )
+    assert response.status_code == 200, response.text
+    session_id = response.json()["id"]
+
+    response = client.post(f"/api/sessions/{session_id}/open")
+
+    assert response.status_code == 400
+    assert "use Resume first" in response.text
+
+
 def test_api_summary_triggers_reconciliation(configured_modules, monkeypatch):
     from app.api import server
 

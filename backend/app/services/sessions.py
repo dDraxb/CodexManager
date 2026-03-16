@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +29,11 @@ def _now_iso() -> str:
 
 def _session_id() -> str:
     return f"sess_{uuid4().hex[:10]}"
+
+
+def _tmux_session_name(name: str, session_id: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", name.strip()).strip("-").lower() or "session"
+    return f"codex-{slug}-{session_id[-6:]}"
 
 
 def _session_dir(session_id: str) -> Path:
@@ -121,7 +127,7 @@ def create_managed_session(
     now = _now_iso()
     session_id = _session_id()
     log_path = _make_log_file(session_id)
-    tmux_session = f"codex-{name}"
+    tmux_session = _tmux_session_name(name, session_id)
     allow_write = 0 if profile == "read-only" else 1
     branch = None
     worktree_path = None
@@ -269,7 +275,7 @@ def adopt_session(
     now = _now_iso()
     session_id = _session_id()
     log_path = _make_log_file(session_id)
-    tmux_session = f"codex-{name}"
+    tmux_session = _tmux_session_name(name, session_id)
     branch = None
 
     try:
@@ -360,6 +366,8 @@ def open_session(name_or_id: str, runner: RunnerClient | None = None) -> str:
         raise SessionError(f"session '{name_or_id}' not found")
     if not session.tmux_session:
         raise SessionError("session has no tmux binding")
+    if session.mode == SessionMode.ADOPTED.value and not session.started_at:
+        raise SessionError("adopted session is not running in tmux yet; use Resume first")
     client = runner or get_runner_client()
     if not client.session_exists(session.tmux_session):
         raise SessionError("tmux session is not running")
@@ -375,6 +383,16 @@ def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple
 
     client = runner or get_runner_client()
     if session.tmux_session and client.session_exists(session.tmux_session):
+        if session.started_at is None:
+            pid = client.pane_pid(session.tmux_session)
+            now = _now_iso()
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE sessions SET pid = COALESCE(pid, ?), started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?",
+                    (pid, now, now, session.id),
+                )
+                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
+            session = SessionRecord.from_row(row)
         cmd = client.attach_command(session.tmux_session)
         _event(session.id, "session_resumed", "Reattached to existing tmux session")
         return session, cmd
@@ -389,6 +407,15 @@ def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple
             client.create_session(session.tmux_session, session.cwd or session.repo_path, session.log_path, launch_cmd)
         except RunnerError as exc:
             raise SessionError(f"failed to resume adopted session: {exc}") from exc
+        pid = client.pane_pid(session.tmux_session)
+        now = _now_iso()
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE sessions SET pid = ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?",
+                (pid, now, now, session.id),
+            )
+            row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
+        session = SessionRecord.from_row(row)
         session = _transition_status(session, SessionStatus.RUNNING, note="Resumed adopted session")
         _event(session.id, "session_resumed", "Adopted session resumed in tmux")
         return session, client.attach_command(session.tmux_session)

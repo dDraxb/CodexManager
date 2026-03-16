@@ -169,6 +169,7 @@ export default function App() {
     [selectedId, sessions, visibleSessions]
   )
   const canAct = !!selectedSession
+  const canAttach = !!selectedSession && !(selectedSession.mode === 'adopted' && !selectedSession.started_at)
   const pollIntervalSeconds = Date.now() < fastPollUntil ? 2 : refresh
 
   useEffect(() => {
@@ -719,9 +720,12 @@ export default function App() {
           <p>Approval: {detail?.approval_policy || '-'}</p>
           <p className="muted">tmux: {detail?.tmux_session || '-'}</p>
           <p className="muted">Attachment: {detail?.attachment_state || 'detached'}</p>
+          {selectedSession?.mode === 'adopted' && !selectedSession?.started_at ? (
+            <p className="muted">Adopted sessions need `Resume` before an attach command exists.</p>
+          ) : null}
           <p className="muted">CHANGELOG discipline: {detail?.require_changelog ? 'required' : 'optional'}</p>
           <div className="actions">
-            <button disabled={!canAct} onClick={() => runAction('attach')}>Copy Attach Command</button>
+            <button disabled={!canAttach} onClick={() => runAction('attach')}>Copy Attach Command</button>
             <button disabled={!canAct} onClick={() => runAction('resume')}>Resume</button>
             <button disabled={!canAct} className="danger" onClick={() => runAction('stop')}>Stop</button>
             <button disabled={!canAct} className="danger" onClick={() => runAction('delete')}>Delete</button>

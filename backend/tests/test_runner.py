@@ -194,7 +194,7 @@ def test_reconcile_once_uses_runner_for_tmux_presence(configured_modules, git_re
     assert touched == 1
     assert refreshed is not None
     assert refreshed.status == SessionStatus.LOST.value
-    assert ("session_exists", "codex-lost-managed-session") in runner.calls
+    assert ("session_exists", refreshed.tmux_session) in runner.calls
 
     events = list_events(session.id)
     initial_status_events = [event for event in events if event.type == "status_changed" and event.message == "created -> lost"]
@@ -269,6 +269,28 @@ def test_reconcile_once_does_not_wake_newly_adopted_session_without_output(confi
     assert touched == 0
     assert refreshed is not None
     assert refreshed.status == "idle"
+
+
+def test_resume_adopted_session_persists_started_at_and_pid(configured_modules, git_repo):
+    from app.services.sessions import adopt_session, get_session, resume_session
+
+    runner = RecordingRunner(str(git_repo), session_exists=False)
+
+    session = adopt_session(
+        name="resume-adopted-session",
+        codex_session_id="cdx_123",
+        repo_path=str(git_repo),
+        runner=runner,
+    )
+
+    resumed, command = resume_session(session.id, runner=runner)
+    refreshed = get_session(session.id)
+
+    assert resumed.status == "running"
+    assert command == f"tmux attach -t {session.tmux_session}"
+    assert refreshed is not None
+    assert refreshed.started_at is not None
+    assert refreshed.pid == 4321
 
 
 def test_reconcile_once_moves_idle_session_to_running_on_new_pane_output(configured_modules, git_repo):
@@ -613,8 +635,8 @@ def test_capture_session_logs_prefers_runner_pane_for_running_sessions(configure
     lines = capture_session_logs(session.id, tail=50, runner=runner)
 
     assert lines == ["pane output"]
-    assert ("session_exists", "codex-pane-logs") in runner.calls
-    assert ("capture_pane", "codex-pane-logs", 50) in runner.calls
+    assert ("session_exists", session.tmux_session) in runner.calls
+    assert ("capture_pane", session.tmux_session, 50) in runner.calls
 
 
 def test_open_session_keeps_idle_session_idle(configured_modules):
@@ -639,6 +661,6 @@ def test_open_session_keeps_idle_session_idle(configured_modules):
     command = open_session(session.id, runner=runner)
     refreshed = get_session(session.id)
 
-    assert command == "tmux attach -t codex-open-idle-session"
+    assert command == f"tmux attach -t {session.tmux_session}"
     assert refreshed is not None
     assert refreshed.status == SessionStatus.IDLE.value

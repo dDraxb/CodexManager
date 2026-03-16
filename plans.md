@@ -211,7 +211,93 @@ The V1 foundation already gives us:
 - event and output capture
 - deterministic status signals
 
-V2 should build on that foundation in four major layers:
+V2 should build on that foundation in a clear priority order.
+
+### V2 Priority 1 - True Codex history resume and adoption
+
+This is the top V2 item.
+
+The current product is very good at reattaching to a live tmux-backed Codex process.
+It is much weaker at reconstructing work once that original process is gone.
+
+That distinction matters:
+- `tmux attach` reconnects to the exact running Codex process
+- `codex resume <session-id>` starts a new Codex process and asks Codex itself to restore prior history
+
+Today, manager-created sessions are strongest in the first mode.
+Adopted sessions and older historical sessions depend on the second mode.
+That creates an inconsistency:
+- live sessions feel seamless
+- older sessions are harder to re-enter cleanly
+- users with many prior Codex sessions do not yet get a first-class import/adopt/resume experience
+
+V2 should close that gap directly.
+
+The product goal is:
+- every important session should be resumable from the manager even after the original tmux process is gone
+- older Codex history should be importable and adoptable in a structured way
+- the manager should make a clear distinction between “attach to live process” and “resume from Codex history”
+
+This requires several concrete capabilities:
+
+#### Persist the real Codex session id for managed sessions
+
+Right now, manager-created sessions have a manager session id and a tmux session name, but the real underlying Codex conversation/session id is not yet a first-class captured field for the managed-session lifecycle.
+
+V2 should:
+- detect the Codex session id shortly after managed-session startup
+- persist it on the manager session record
+- keep it visible in the UI and CLI when available
+
+That is the key enabler for historical resume after tmux is gone.
+
+#### Separate two different reopen actions in the product
+
+The manager should stop treating all “resume/open” flows as conceptually the same.
+
+It should expose two distinct actions:
+- `Attach live session`
+  Reconnect to an existing tmux-backed Codex process.
+- `Resume from Codex history`
+  Launch a fresh Codex process that resumes from the stored Codex session id.
+
+This is important because the user experience is different:
+- live attach restores the exact interactive process state
+- historical resume reconstructs from Codex’s saved history and may involve Codex-native resume UI behavior
+
+#### First-class historical adoption/import
+
+The manager should become good at taking previously created Codex sessions and making them manageable.
+
+That means:
+- import or browse session history from `CODEX_HOME`
+- inspect prior session metadata before adoption
+- adopt older sessions into the manager with clear provenance
+- support resume flows for sessions that were never originally launched by the manager
+
+This is especially important for users who already have many valuable prior Codex sessions and want the manager to become their single control surface.
+
+#### Better operator semantics around continuity
+
+The product should make clear what kind of continuity the user is getting:
+- exact live continuation
+- historical conversational continuation
+- manager-local metadata continuity
+
+This removes a lot of current ambiguity around ids and “what exactly am I reopening?”
+
+#### Reliability requirements
+
+This feature should not be implemented as a brittle one-off parser.
+It needs a defensible approach for:
+- detecting and persisting Codex session ids
+- handling missing or unavailable ids gracefully
+- surviving changes in Codex output format where possible
+- testing both live attach and historical resume flows
+
+This is not a V1 blocker, but it is the most important next capability because it unlocks the manager as a real home for both new work and prior work.
+
+After this top-priority item, V2 should continue in these broader layers:
 - execution intelligence
 - engineering workflow intelligence
 - collaboration/handoff intelligence
