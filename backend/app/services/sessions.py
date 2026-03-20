@@ -376,6 +376,29 @@ def open_session(name_or_id: str, runner: RunnerClient | None = None) -> str:
     return client.attach_command(session.tmux_session)
 
 
+def set_codex_session_id(name_or_id: str, codex_session_id: str) -> SessionRecord:
+    session = get_session(name_or_id)
+    if session is None:
+        raise SessionError(f"session '{name_or_id}' not found")
+    if not codex_session_id.strip():
+        raise SessionError("codex session id is required")
+
+    now = _now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?",
+            (codex_session_id.strip(), now, session.id),
+        )
+        row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
+    _event(
+        session.id,
+        "codex_session_linked",
+        "Codex history target updated",
+        {"codex_session_id": codex_session_id.strip(), "source": "manual"},
+    )
+    return SessionRecord.from_row(row)
+
+
 def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple[SessionRecord, str]:
     session = get_session(name_or_id)
     if session is None:

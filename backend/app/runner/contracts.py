@@ -29,6 +29,15 @@ class RunnerClient(Protocol):
     def ensure_changelog_entry(self, repo_path: str, session_name: str, prompt: str | None, timestamp: str) -> str:
         """Ensure CHANGELOG.md exists and append a new work entry template."""
 
+    def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
+        """Return a recent Codex-native session id for this cwd when one can be identified safely."""
+
+    def list_codex_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        """Return recent Codex thread metadata."""
+
+    def list_resume_candidates(self, thread_id: str | None, cwd: str | None, prompt: str | None, limit: int = 12) -> list[dict]:
+        """Return chooser candidates for a session resume flow."""
+
     def session_exists(self, session_name: str) -> bool:
         """Return whether a tmux session exists."""
 

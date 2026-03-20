@@ -10,7 +10,7 @@ services:
       CODEXMGR_UI_PORT: "8790"
       CODEXMGR_IN_DOCKER: "1"
       CODEXMGR_DOCKER_SERVICE: codexmgr
-      RUNNER_BASE_URL: ${RUNNER_BASE_URL:-}
+      RUNNER_BASE_URL: ${RUNNER_BASE_URL:-http://host.docker.internal:8788}
       RUNNER_API_KEY: ${RUNNER_API_KEY:-}
     ports:
       - "${CODEXMGR_HOST_PORT:-8791}:8790"

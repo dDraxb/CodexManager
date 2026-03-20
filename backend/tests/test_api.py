@@ -234,3 +234,117 @@ def test_api_summary_triggers_reconciliation(configured_modules, monkeypatch):
 
     assert response.status_code == 200
     assert calls == ["reconciled"]
+
+
+def test_api_resume_points_uses_runner_history(configured_modules, git_repo, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "resume-points-api",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "prompt": "Refactor service layer",
+            "launch": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    session_id = response.json()["id"]
+
+    class HistoryRunner:
+        def list_resume_candidates(self, thread_id, cwd, prompt, limit=12):
+            assert thread_id is None
+            assert cwd == str(git_repo)
+            assert prompt == "Refactor service layer"
+            return [{"id": "019ce115-d070-7053-b385-870d5e021ea7", "cwd": cwd, "created_at": 1, "updated_at": 2, "title": prompt, "first_user_message": prompt, "rollout_path": "rollout.jsonl"}]
+
+    monkeypatch.setattr(server, "get_runner_client", lambda: HistoryRunner())
+
+    response = client.get(f"/api/sessions/{session_id}/resume-points")
+
+    assert response.status_code == 200
+    assert response.json()["threads"][0]["id"] == "019ce115-d070-7053-b385-870d5e021ea7"
+
+
+def test_api_codex_resume_points_uses_explicit_thread_id(configured_modules, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    class HistoryRunner:
+        def list_resume_candidates(self, thread_id, cwd, prompt, limit=12):
+            assert thread_id == "019cf8f7-ee18-7e81-9683-4e3fc2008c79"
+            assert cwd == "/repo/service-a"
+            assert prompt is None
+            return [{"id": thread_id, "cwd": cwd, "created_at": 1, "updated_at": 2, "title": "proof", "first_user_message": "proof", "rollout_path": "rollout.jsonl"}]
+
+    monkeypatch.setattr(server, "get_runner_client", lambda: HistoryRunner())
+
+    response = client.get(
+        "/api/codex/resume-points?thread_id=019cf8f7-ee18-7e81-9683-4e3fc2008c79&cwd=/repo/service-a"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["threads"][0]["id"] == "019cf8f7-ee18-7e81-9683-4e3fc2008c79"
+
+
+def test_api_codex_history_uses_repo_path_filter(configured_modules, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    class HistoryRunner:
+        def list_codex_threads(self, cwd, query, limit=20):
+            assert cwd == "/repo/service-a"
+            assert query == ""
+            return [
+                {
+                    "id": "019cf8f7-ee18-7e81-9683-4e3fc2008c79",
+                    "cwd": cwd,
+                    "created_at": 1,
+                    "updated_at": 2,
+                    "title": "proof",
+                    "first_user_message": "proof",
+                    "rollout_path": "rollout.jsonl",
+                }
+            ]
+
+    monkeypatch.setattr(server, "get_runner_client", lambda: HistoryRunner())
+
+    response = client.get("/api/codex/history?cwd=/repo/service-a&query=")
+
+    assert response.status_code == 200
+    assert response.json()["threads"][0]["cwd"] == "/repo/service-a"
+
+
+def test_api_can_update_codex_session_link(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "link-codex-session-api",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "launch": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    session_id = response.json()["id"]
+
+    response = client.post(
+        f"/api/sessions/{session_id}/codex-session-link",
+        json={"codexSessionId": "019ce115-d070-7053-b385-870d5e021ea7"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["codex_session_id"] == "019ce115-d070-7053-b385-870d5e021ea7"

@@ -117,6 +117,11 @@ function trimTrailingBlankLines(lines) {
   return trimmed
 }
 
+function formatCodexTimestamp(epochSeconds) {
+  if (!epochSeconds) return 'unknown time'
+  return new Date(epochSeconds * 1000).toLocaleString()
+}
+
 export default function App() {
   const [summary, setSummary] = useState({ total: 0, counts: {}, needsAttention: 0 })
   const [sessions, setSessions] = useState([])
@@ -133,6 +138,11 @@ export default function App() {
   const [showArchive, setShowArchive] = useState(false)
   const [sessionQuery, setSessionQuery] = useState('')
   const [commandTab, setCommandTab] = useState('create')
+  const [historyQuery, setHistoryQuery] = useState('')
+  const [historyThreads, setHistoryThreads] = useState([])
+  const [resumePoints, setResumePoints] = useState([])
+  const [showResumeChooser, setShowResumeChooser] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(false)
   const [fastPollUntil, setFastPollUntil] = useState(0)
   const logOutputRef = useRef(null)
   const stickLogToBottomRef = useRef(true)
@@ -409,6 +419,69 @@ export default function App() {
     }
   }
 
+  async function loadCodexHistory(query = historyQuery) {
+    setLoadingHistory(true)
+    try {
+      const trimmedQuery = query.trim()
+      const threadId = adoptForm.codexSessionId.trim()
+      const repoPath = adoptForm.repoPath.trim()
+      const url = threadId
+        ? `/api/codex/resume-points?limit=12&thread_id=${encodeURIComponent(threadId)}&cwd=${encodeURIComponent(repoPath)}&prompt=${encodeURIComponent(trimmedQuery)}`
+        : `/api/codex/history?limit=12&query=${encodeURIComponent(trimmedQuery)}&cwd=${encodeURIComponent(repoPath)}`
+      const payload = await fetchJson(url)
+      setHistoryThreads(payload.threads || [])
+    } catch (err) {
+      const message = formatError(err)
+      setError(message)
+      notify('error', message)
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  async function loadResumePoints(sessionId = selectedSession?.id) {
+    if (!sessionId) return
+    setLoadingHistory(true)
+    try {
+      const payload = await fetchJson(`/api/sessions/${sessionId}/resume-points?limit=12`)
+      setResumePoints(payload.threads || [])
+      setShowResumeChooser(true)
+    } catch (err) {
+      const message = formatError(err)
+      setError(message)
+      notify('error', message)
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  async function useResumePoint(thread) {
+    if (!selectedSession) return
+    const payload = await runRequest(
+      () =>
+        fetchJson(`/api/sessions/${selectedSession.id}/codex-session-link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ codexSessionId: thread.id })
+        }),
+      () => `Resume target updated to ${thread.id}`
+    )
+    if (!payload) return
+    setShowResumeChooser(false)
+    await refreshAfterMutation(selectedSession.id)
+  }
+
+  function adoptFromHistory(thread) {
+    setCommandTab('adopt')
+    setAdoptForm((prev) => ({
+      ...prev,
+      codexSessionId: thread.id,
+      repoPath: thread.cwd || prev.repoPath,
+      name: prev.name || (thread.title || `imported-${thread.id.slice(0, 8)}`).slice(0, 60)
+    }))
+    notify('success', `Loaded ${thread.id} into adopt form`)
+  }
+
   function onCreateField(field, value) {
     setCreateForm((prev) => ({ ...prev, [field]: value }))
   }
@@ -648,6 +721,45 @@ export default function App() {
                 </div>
                 <button type="submit" className="primary">Adopt session</button>
               </form>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Recent Codex History</p>
+                    <p className="muted">
+                      {adoptForm.codexSessionId.trim()
+                        ? 'Showing candidates for the filled Codex session id, newest first.'
+                        : adoptForm.repoPath.trim()
+                          ? 'Showing recent Codex threads for the filled repo path, newest first.'
+                          : 'Showing global recent Codex threads. Fill repo path or session id to narrow it down.'}
+                    </p>
+                  </div>
+                  <button className="ghost" type="button" onClick={() => loadCodexHistory('')}>Load recent</button>
+                </div>
+                <div className="inline-fields">
+                  <input
+                    placeholder="Search by title, prompt, or thread id"
+                    value={historyQuery}
+                    onChange={(event) => setHistoryQuery(event.target.value)}
+                  />
+                  <button className="ghost" type="button" onClick={() => loadCodexHistory(historyQuery)}>
+                    {loadingHistory ? 'Loading…' : 'Search history'}
+                  </button>
+                </div>
+                <div className="history-list">
+                  {historyThreads.map((thread) => (
+                    <div key={thread.id} className="history-item">
+                      <div className="row between">
+                        <strong>{thread.title || thread.first_user_message || thread.id}</strong>
+                        <span className="badge badge-stopped">{formatCodexTimestamp(thread.updated_at)}</span>
+                      </div>
+                      <p className="muted">{thread.id}</p>
+                      <p className="muted">{thread.cwd}</p>
+                      <button className="ghost" type="button" onClick={() => adoptFromHistory(thread)}>Use in adopt form</button>
+                    </div>
+                  ))}
+                  {!historyThreads.length ? <p className="muted">No history loaded yet.</p> : null}
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -719,7 +831,9 @@ export default function App() {
           <p>Permissions: {detail?.profile || '-'}</p>
           <p>Approval: {detail?.approval_policy || '-'}</p>
           <p className="muted">tmux: {detail?.tmux_session || '-'}</p>
+          <p className="muted">Codex session: {detail?.codex_session_id || 'pending capture'}</p>
           <p className="muted">Attachment: {detail?.attachment_state || 'detached'}</p>
+          <p className="muted">Resume target: {detail?.codex_session_id || 'no linked Codex thread yet'}</p>
           {selectedSession?.mode === 'adopted' && !selectedSession?.started_at ? (
             <p className="muted">Adopted sessions need `Resume` before an attach command exists.</p>
           ) : null}
@@ -727,9 +841,37 @@ export default function App() {
           <div className="actions">
             <button disabled={!canAttach} onClick={() => runAction('attach')}>Copy Attach Command</button>
             <button disabled={!canAct} onClick={() => runAction('resume')}>Resume</button>
+            <button disabled={!canAct} className="ghost" onClick={() => loadResumePoints()}>Choose Resume Point</button>
             <button disabled={!canAct} className="danger" onClick={() => runAction('stop')}>Stop</button>
             <button disabled={!canAct} className="danger" onClick={() => runAction('delete')}>Delete</button>
           </div>
+          {showResumeChooser ? (
+            <div className="history-browser resume-browser">
+              <div className="row between history-browser-head">
+                <div>
+                  <p className="eyebrow">Resume Points</p>
+                  <p className="muted">Choose the exact Codex thread to resume with `{selectedSession?.name}`.</p>
+                </div>
+                <button className="ghost" type="button" onClick={() => setShowResumeChooser(false)}>Close</button>
+              </div>
+              <div className="history-list">
+                {resumePoints.map((thread) => (
+                  <div key={thread.id} className="history-item">
+                    <div className="row between">
+                      <strong>{thread.title || thread.first_user_message || thread.id}</strong>
+                      <span className={`badge ${detail?.codex_session_id === thread.id ? 'badge-running' : 'badge-stopped'}`}>
+                        {detail?.codex_session_id === thread.id ? 'selected' : formatCodexTimestamp(thread.updated_at)}
+                      </span>
+                    </div>
+                    <p className="muted">{thread.id}</p>
+                    <p className="muted">{thread.cwd}</p>
+                    <button className="ghost" type="button" onClick={() => useResumePoint(thread)}>Use this thread</button>
+                  </div>
+                ))}
+                {!resumePoints.length ? <p className="muted">No resume candidates found for this session yet.</p> : null}
+              </div>
+            </div>
+          ) : null}
         </article>
       </section>
 

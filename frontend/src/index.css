@@ -350,6 +350,35 @@ p {
   line-height: 1.45;
 }
 
+.history-browser {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.history-browser-head {
+  margin-bottom: 10px;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  max-height: 320px;
+  overflow: auto;
+  margin-top: 10px;
+}
+
+.history-item {
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: rgba(10, 22, 35, 0.82);
+}
+
+.resume-browser {
+  margin-top: 12px;
+}
+
 .toggle {
   display: flex;
   align-items: center;

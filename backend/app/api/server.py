@@ -24,8 +24,10 @@ from app.services.sessions import (
     list_sessions,
     open_session,
     resume_session,
+    set_codex_session_id,
     stop_session,
 )
+from app.runner.client import get_runner_client
 
 app = FastAPI(title="codex-session-manager")
 app.add_middleware(
@@ -53,6 +55,10 @@ class AdoptRequest(BaseModel):
     codex_session_id: str = Field(alias="codexSessionId")
     repo_path: str = Field(alias="repoPath")
     profile: str = "read-only"
+
+
+class CodexSessionLinkRequest(BaseModel):
+    codex_session_id: str = Field(alias="codexSessionId")
 
 
 def _session_or_404(session_id: str):
@@ -103,6 +109,37 @@ def session_logs(session_id: str, tail: int = 200) -> dict:
 def session_events(session_id: str, limit: int = 100) -> list[dict]:
     _session_or_404(session_id)
     return [asdict(e) for e in list_events(session_id, limit)]
+
+
+@app.get("/api/codex/history")
+def codex_history(query: str | None = None, cwd: str | None = None, limit: int = 20) -> dict:
+    client = get_runner_client()
+    return {"threads": client.list_codex_threads(cwd, query, limit=limit)}
+
+
+@app.get("/api/codex/resume-points")
+def codex_resume_points(
+    thread_id: str | None = None,
+    cwd: str | None = None,
+    prompt: str | None = None,
+    limit: int = 12,
+) -> dict:
+    client = get_runner_client()
+    threads = client.list_resume_candidates(thread_id, cwd, prompt, limit=limit)
+    return {"threads": threads}
+
+
+@app.get("/api/sessions/{session_id}/resume-points")
+def session_resume_points(session_id: str, limit: int = 12) -> dict:
+    session = _session_or_404(session_id)
+    client = get_runner_client()
+    threads = client.list_resume_candidates(
+        session.codex_session_id,
+        session.cwd,
+        session.prompt,
+        limit=limit,
+    )
+    return {"threads": threads}
 
 
 @app.post("/api/sessions/start")
@@ -176,6 +213,15 @@ def session_resume(session_id: str) -> dict:
     except SessionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"session": asdict(session), "command": command}
+
+
+@app.post("/api/sessions/{session_id}/codex-session-link")
+def session_codex_session_link(session_id: str, request: CodexSessionLinkRequest) -> dict:
+    try:
+        session = set_codex_session_id(session_id, request.codex_session_id)
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return asdict(session)
 
 
 @app.post("/api/sessions/adopt")

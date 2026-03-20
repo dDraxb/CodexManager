@@ -42,6 +42,25 @@ class ChangelogRequest(BaseModel):
     timestamp: str
 
 
+class FindRecentCodexSessionRequest(BaseModel):
+    cwd: str
+    prompt: str | None = None
+    since: str | None = None
+
+
+class CodexThreadListRequest(BaseModel):
+    cwd: str | None = None
+    query: str | None = None
+    limit: int = 20
+
+
+class ResumeCandidateRequest(BaseModel):
+    thread_id: str | None = None
+    cwd: str | None = None
+    prompt: str | None = None
+    limit: int = 12
+
+
 class BuildCodexLaunchRequest(BaseModel):
     profile: str
     prompt: str | None = None
@@ -154,6 +173,37 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
             )
         )
         return {"changelog_path": changelog_path}
+
+    @app.post("/codex/find-recent-session")
+    def find_recent_codex_session(
+        request: FindRecentCodexSessionRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        codex_session_id = runner_call(
+            lambda: runner.find_recent_codex_session(request.cwd, request.prompt, request.since)
+        )
+        return {"codex_session_id": codex_session_id}
+
+    @app.post("/codex/list-threads")
+    def codex_list_threads(
+        request: CodexThreadListRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        threads = runner_call(lambda: runner.list_codex_threads(request.cwd, request.query, request.limit))
+        return {"threads": threads}
+
+    @app.post("/codex/list-resume-candidates")
+    def codex_list_resume_candidates(
+        request: ResumeCandidateRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        threads = runner_call(
+            lambda: runner.list_resume_candidates(request.thread_id, request.cwd, request.prompt, request.limit)
+        )
+        return {"threads": threads}
 
     @app.post("/tmux/session-exists")
     def tmux_session_exists(

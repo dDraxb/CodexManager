@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import sqlite3
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
@@ -78,6 +79,10 @@ class RecordingRunner:
         self.calls.append(("ensure_changelog_entry", repo_path, session_name, prompt, timestamp))
         return f"{repo_path}/CHANGELOG.md"
 
+    def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
+        self.calls.append(("find_recent_codex_session", cwd, prompt, since))
+        return None
+
     def session_exists(self, session_name: str) -> bool:
         self.calls.append(("session_exists", session_name))
         return self.session_exists_value
@@ -119,6 +124,70 @@ def test_local_runner_can_prepare_git_repo_and_worktree(configured_modules, tmp_
 
     assert (folder / ".git").exists()
     assert Path(worktree).exists()
+
+
+def test_local_runner_lists_codex_threads_for_repo_subpaths(configured_modules, tmp_path, monkeypatch):
+    from app.runner.client import LocalRunnerClient
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    state_db = codex_home / "state_5.sqlite"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                cwd TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                first_user_message TEXT,
+                title TEXT,
+                rollout_path TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO threads (id, cwd, created_at, updated_at, first_user_message, title, rollout_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "parent",
+                    "/repo/service-a",
+                    100,
+                    200,
+                    "parent thread",
+                    "parent thread",
+                    "/tmp/parent.jsonl",
+                ),
+                (
+                    "child",
+                    "/repo/service-a/packages/api",
+                    110,
+                    210,
+                    "child thread",
+                    "child thread",
+                    "/tmp/child.jsonl",
+                ),
+                (
+                    "other",
+                    "/repo/service-b",
+                    120,
+                    220,
+                    "other thread",
+                    "other thread",
+                    "/tmp/other.jsonl",
+                ),
+            ],
+        )
+
+    runner = LocalRunnerClient()
+    threads = runner.list_codex_threads("/repo/service-a", None, limit=10)
+
+    assert [thread["id"] for thread in threads] == ["child", "parent"]
 
 
 def test_create_managed_session_accepts_runner_owned_repo_paths(configured_modules):
@@ -399,6 +468,43 @@ def test_reconcile_once_updates_validation_status_and_attention(configured_modul
     assert "Lint failed" in validation_events
 
 
+def test_reconcile_once_links_managed_session_to_codex_history(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session, list_events
+
+    class LinkingRunner(RecordingRunner):
+        def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
+            self.calls.append(("find_recent_codex_session", cwd, prompt, since))
+            return "019ce115-d070-7053-b385-870d5e021ea7"
+
+    runner = LinkingRunner(str(git_repo), session_exists=True)
+
+    session = create_managed_session(
+        name="capture-codex-session-id",
+        repo_path=str(git_repo),
+        profile="safe-edit",
+        prompt="Refactor service layer",
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+
+    reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert refreshed is not None
+    assert refreshed.codex_session_id == "019ce115-d070-7053-b385-870d5e021ea7"
+    assert any(call[0] == "find_recent_codex_session" and call[1] == str(git_repo) for call in runner.calls)
+
+    events = list_events(session.id)
+    assert any(
+        event.type == "codex_session_linked" and "019ce115-d070-7053-b385-870d5e021ea7" in event.metadata_json
+        for event in events
+    )
+
+
 def test_reconcile_once_does_not_wake_idle_session_on_attachment_only(configured_modules, git_repo):
     from app.models.session import SessionStatus
     from app.monitoring.reconciler import reconcile_once
@@ -552,6 +658,74 @@ def test_local_runner_maps_manager_profiles_to_codex_flags(configured_modules):
     assert runner.build_codex_launch_command("safe-edit", None) == "codex --no-alt-screen -s workspace-write -a on-request"
 
 
+def test_local_runner_can_find_recent_codex_session_from_state_db(configured_modules, tmp_path, monkeypatch):
+    from app.runner.client import LocalRunnerClient
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    state_db = codex_home / "state_5.sqlite"
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE threads (
+              id TEXT PRIMARY KEY,
+              rollout_path TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              source TEXT NOT NULL,
+              model_provider TEXT NOT NULL,
+              cwd TEXT NOT NULL,
+              title TEXT NOT NULL,
+              sandbox_policy TEXT NOT NULL,
+              approval_mode TEXT NOT NULL,
+              tokens_used INTEGER NOT NULL DEFAULT 0,
+              has_user_event INTEGER NOT NULL DEFAULT 0,
+              archived INTEGER NOT NULL DEFAULT 0,
+              archived_at INTEGER,
+              git_sha TEXT,
+              git_branch TEXT,
+              git_origin_url TEXT,
+              cli_version TEXT NOT NULL DEFAULT '',
+              first_user_message TEXT NOT NULL DEFAULT '',
+              agent_nickname TEXT,
+              agent_role TEXT,
+              memory_mode TEXT NOT NULL DEFAULT 'enabled'
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO threads (
+              id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
+              sandbox_policy, approval_mode, first_user_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "019ce115-d070-7053-b385-870d5e021ea7",
+                "rollout.jsonl",
+                1773302829,
+                1773302835,
+                "cli",
+                "openai",
+                "/repo/service-a",
+                "Refactor service layer",
+                "workspace-write",
+                "on-request",
+                "Refactor service layer",
+            ),
+        )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    runner = LocalRunnerClient()
+    result = runner.find_recent_codex_session(
+        "/repo/service-a",
+        "Refactor service layer",
+        "2026-03-12T08:07:00+00:00",
+    )
+
+    assert result == "019ce115-d070-7053-b385-870d5e021ea7"
+
+
 def test_remote_runner_rejects_invalid_api_key(monkeypatch, tmp_path):
     from app.runner.client import RemoteRunnerClient
     from app.runner.contracts import RunnerError
@@ -613,6 +787,79 @@ def test_remote_runner_can_check_attachment(monkeypatch):
     attached = runner.is_session_attached("codex-demo")
 
     assert attached is False
+
+
+def test_remote_runner_can_find_recent_codex_session(monkeypatch, tmp_path):
+    from app.runner.client import RemoteRunnerClient
+    from app.runner.server import create_app
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    state_db = codex_home / "state_5.sqlite"
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE threads (
+              id TEXT PRIMARY KEY,
+              rollout_path TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              source TEXT NOT NULL,
+              model_provider TEXT NOT NULL,
+              cwd TEXT NOT NULL,
+              title TEXT NOT NULL,
+              sandbox_policy TEXT NOT NULL,
+              approval_mode TEXT NOT NULL,
+              tokens_used INTEGER NOT NULL DEFAULT 0,
+              has_user_event INTEGER NOT NULL DEFAULT 0,
+              archived INTEGER NOT NULL DEFAULT 0,
+              archived_at INTEGER,
+              git_sha TEXT,
+              git_branch TEXT,
+              git_origin_url TEXT,
+              cli_version TEXT NOT NULL DEFAULT '',
+              first_user_message TEXT NOT NULL DEFAULT '',
+              agent_nickname TEXT,
+              agent_role TEXT,
+              memory_mode TEXT NOT NULL DEFAULT 'enabled'
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO threads (
+              id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
+              sandbox_policy, approval_mode, first_user_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "019ce115-d070-7053-b385-870d5e021ea7",
+                "rollout.jsonl",
+                1773302829,
+                1773302835,
+                "cli",
+                "openai",
+                "/repo/service-a",
+                "Refactor service layer",
+                "workspace-write",
+                "on-request",
+                "Refactor service layer",
+            ),
+        )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    app = create_app(api_key="secret")
+    client = TestClient(app)
+    _bridge_urlopen(monkeypatch, client, "http://runner")
+
+    runner = RemoteRunnerClient("http://runner", api_key="secret")
+    result = runner.find_recent_codex_session(
+        "/repo/service-a",
+        "Refactor service layer",
+        "2026-03-12T08:07:00+00:00",
+    )
+
+    assert result == "019ce115-d070-7053-b385-870d5e021ea7"
 
 
 def test_capture_session_logs_prefers_runner_pane_for_running_sessions(configured_modules):

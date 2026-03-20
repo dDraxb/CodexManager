@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
 from app.services.shell import ShellError, command_exists
 from app.services.tmux import attach_command as tmux_attach_command
 from app.services.tmux import capture_pane as tmux_capture_pane
@@ -91,6 +92,37 @@ class LocalRunnerClient(RunnerClient):
                 )
             )
         return str(changelog_path)
+
+    def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
+        return find_recent_codex_session_id(cwd, prompt, since)
+
+    def list_codex_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        return [
+            {
+                "id": item.id,
+                "cwd": item.cwd,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+                "title": item.title,
+                "first_user_message": item.first_user_message,
+                "rollout_path": item.rollout_path,
+            }
+            for item in list_codex_threads(cwd=cwd, query=query, limit=limit)
+        ]
+
+    def list_resume_candidates(self, thread_id: str | None, cwd: str | None, prompt: str | None, limit: int = 12) -> list[dict]:
+        return [
+            {
+                "id": item.id,
+                "cwd": item.cwd,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+                "title": item.title,
+                "first_user_message": item.first_user_message,
+                "rollout_path": item.rollout_path,
+            }
+            for item in list_resume_candidates(thread_id=thread_id, cwd=cwd, prompt=prompt, limit=limit)
+        ]
 
     def session_exists(self, session_name: str) -> bool:
         return tmux_session_exists(session_name)
@@ -177,6 +209,41 @@ class RemoteRunnerClient(RunnerClient):
             },
         )
         return str(payload["changelog_path"])
+
+    def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
+        payload = self._post(
+            "/codex/find-recent-session",
+            {
+                "cwd": cwd,
+                "prompt": prompt,
+                "since": since,
+            },
+        )
+        value = payload["codex_session_id"]
+        return str(value) if value is not None else None
+
+    def list_codex_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        payload = self._post(
+            "/codex/list-threads",
+            {
+                "cwd": cwd,
+                "query": query,
+                "limit": limit,
+            },
+        )
+        return [dict(item) for item in payload["threads"]]
+
+    def list_resume_candidates(self, thread_id: str | None, cwd: str | None, prompt: str | None, limit: int = 12) -> list[dict]:
+        payload = self._post(
+            "/codex/list-resume-candidates",
+            {
+                "thread_id": thread_id,
+                "cwd": cwd,
+                "prompt": prompt,
+                "limit": limit,
+            },
+        )
+        return [dict(item) for item in payload["threads"]]
 
     def session_exists(self, session_name: str) -> bool:
         payload = self._post("/tmux/session-exists", {"session_name": session_name})

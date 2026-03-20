@@ -101,6 +101,15 @@ def _record_validation_state(session_id: str, *, test_status: str, lint_status: 
         )
 
 
+def _record_codex_session_id(session_id: str, codex_session_id: str) -> None:
+    timestamp = datetime.now(UTC).replace(microsecond=0).isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?",
+            (codex_session_id, timestamp, session_id),
+        )
+
+
 def _session_needs_attention(session_status: str, *, test_status: str, lint_status: str) -> bool:
     if session_status in {SessionStatus.FAILED.value, SessionStatus.LOST.value, SessionStatus.WAITING_INPUT.value}:
         return True
@@ -140,6 +149,30 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.lint_status = snapshot.lint_status
     session.needs_attention = 1 if needs_attention else 0
+
+
+def _refresh_codex_session_link(session, client: RunnerClient) -> None:
+    if session.mode != "managed" or session.codex_session_id or not session.cwd:
+        return
+    try:
+        codex_session_id = client.find_recent_codex_session(
+            session.cwd,
+            session.prompt,
+            session.started_at or session.created_at,
+        )
+    except RunnerError:
+        return
+    if not codex_session_id:
+        return
+
+    _record_codex_session_id(session.id, codex_session_id)
+    _event(
+        session.id,
+        "codex_session_linked",
+        "Linked Codex history session",
+        {"codex_session_id": codex_session_id},
+    )
+    session.codex_session_id = codex_session_id
 
 
 
@@ -227,6 +260,7 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
 
         if lines:
             _refresh_validation_state(session, lines)
+        _refresh_codex_session_link(session, client)
         if idle_age is None:
             continue
 
