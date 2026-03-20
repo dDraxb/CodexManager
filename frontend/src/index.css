@@ -448,8 +448,13 @@ p {
 .cards {
   margin-top: 14px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
   gap: 12px;
+  align-items: stretch;
+}
+
+.execution-panel-wrap {
+  margin-top: 12px;
 }
 
 .badge {
@@ -514,6 +519,125 @@ p {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 12px;
+}
+
+.execution-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.execution-panel {
+  padding: 16px;
+}
+
+.execution-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.8fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.execution-main,
+.execution-side {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.execution-side {
+  align-self: stretch;
+  display: flex;
+}
+
+.execution-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.execution-section {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: rgba(10, 22, 35, 0.72);
+}
+
+.execution-section-title {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.execution-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.execution-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.execution-item-wide {
+  grid-column: 1 / -1;
+}
+
+.execution-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.execution-value {
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.execution-code {
+  color: var(--muted-strong);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.84rem;
+}
+
+.execution-note {
+  padding: 10px 12px;
+  border: 1px dashed rgba(124, 193, 255, 0.34);
+  border-radius: 14px;
+  background: rgba(124, 193, 255, 0.08);
+  color: var(--muted-strong);
+  line-height: 1.45;
+}
+
+.execution-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 0;
+}
+
+.execution-actions button {
+  width: 100%;
+}
+
+.execution-delete {
+  grid-column: 1 / -1;
+}
+
+.execution-actions-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .primary,
@@ -653,6 +777,15 @@ p {
 
   .cards {
     grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+
+  .execution-grid,
+  .execution-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .execution-layout {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -161,20 +161,22 @@ def create_managed_session(
             conn.execute(
                 """
                 INSERT INTO sessions (
-                  id, name, mode, status, codex_session_id, repo_path, worktree_path, branch,
+                  id, name, mode, status, codex_session_id, codex_rollout_path, codex_updated_at, repo_path, worktree_path, branch,
                   profile, approval_policy, allow_write, allow_shell, tmux_session, pid,
                   prompt, created_at, started_at, finished_at, last_activity_at,
                   last_known_activity, changed_files_count, changed_files_preview,
                   test_status, lint_status, exit_code, log_path, cwd, target_label,
                   observability, needs_attention, require_changelog, attachment_state, last_attached_at, last_detached_at,
                   output_fingerprint, output_observed_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     name,
                     SessionMode.MANAGED.value,
                     SessionStatus.CREATED.value,
+                    None,
+                    None,
                     None,
                     repo,
                     worktree_path,
@@ -288,14 +290,14 @@ def adopt_session(
             conn.execute(
                 """
                 INSERT INTO sessions (
-                  id, name, mode, status, codex_session_id, repo_path, worktree_path, branch,
+                  id, name, mode, status, codex_session_id, codex_rollout_path, codex_updated_at, repo_path, worktree_path, branch,
                   profile, approval_policy, allow_write, allow_shell, tmux_session, pid,
                   prompt, created_at, started_at, finished_at, last_activity_at,
                   last_known_activity, changed_files_count, changed_files_preview,
                   test_status, lint_status, exit_code, log_path, cwd, target_label,
                   observability, needs_attention, require_changelog, attachment_state, last_attached_at, last_detached_at,
                   output_fingerprint, output_observed_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -303,6 +305,8 @@ def adopt_session(
                     SessionMode.ADOPTED.value,
                     SessionStatus.IDLE.value,
                     codex_session_id,
+                    None,
+                    None,
                     repo,
                     None,
                     branch,
@@ -376,7 +380,13 @@ def open_session(name_or_id: str, runner: RunnerClient | None = None) -> str:
     return client.attach_command(session.tmux_session)
 
 
-def set_codex_session_id(name_or_id: str, codex_session_id: str) -> SessionRecord:
+def set_codex_session_id(
+    name_or_id: str,
+    codex_session_id: str,
+    *,
+    codex_rollout_path: str | None = None,
+    codex_updated_at: int | None = None,
+) -> SessionRecord:
     session = get_session(name_or_id)
     if session is None:
         raise SessionError(f"session '{name_or_id}' not found")
@@ -386,17 +396,33 @@ def set_codex_session_id(name_or_id: str, codex_session_id: str) -> SessionRecor
     now = _now_iso()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?",
-            (codex_session_id.strip(), now, session.id),
+            """
+            UPDATE sessions
+            SET codex_session_id = ?, codex_rollout_path = ?, codex_updated_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (codex_session_id.strip(), codex_rollout_path, codex_updated_at, now, session.id),
         )
         row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
     _event(
         session.id,
         "codex_session_linked",
         "Codex history target updated",
-        {"codex_session_id": codex_session_id.strip(), "source": "manual"},
+        {
+            "codex_session_id": codex_session_id.strip(),
+            "codex_rollout_path": codex_rollout_path,
+            "codex_updated_at": codex_updated_at,
+            "source": "manual",
+        },
     )
     return SessionRecord.from_row(row)
+
+
+def _build_history_resume_command(session: SessionRecord, client: RunnerClient) -> str:
+    launch_cmd = client.build_codex_launch_command(session.profile, None)
+    if not launch_cmd.startswith("codex "):
+        return "printf 'codex not found on PATH. Attach and continue manually.\\n'; sleep 86400"
+    return f"{launch_cmd} resume {session.codex_session_id}"
 
 
 def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple[SessionRecord, str]:
@@ -420,16 +446,12 @@ def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple
         _event(session.id, "session_resumed", "Reattached to existing tmux session")
         return session, cmd
 
-    if session.mode == SessionMode.ADOPTED.value and session.codex_session_id and session.tmux_session:
-        launch_cmd = client.build_codex_launch_command(session.profile, None)
-        if launch_cmd.startswith("codex "):
-            launch_cmd = f"{launch_cmd} resume {session.codex_session_id}"
-        else:
-            launch_cmd = "printf 'codex not found on PATH. Attach and continue manually.\\n'; sleep 86400"
+    if session.codex_session_id and session.tmux_session:
+        launch_cmd = _build_history_resume_command(session, client)
         try:
             client.create_session(session.tmux_session, session.cwd or session.repo_path, session.log_path, launch_cmd)
         except RunnerError as exc:
-            raise SessionError(f"failed to resume adopted session: {exc}") from exc
+            raise SessionError(f"failed to resume session from Codex history: {exc}") from exc
         pid = client.pane_pid(session.tmux_session)
         now = _now_iso()
         with get_conn() as conn:
@@ -439,8 +461,16 @@ def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple
             )
             row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
         session = SessionRecord.from_row(row)
-        session = _transition_status(session, SessionStatus.RUNNING, note="Resumed adopted session")
-        _event(session.id, "session_resumed", "Adopted session resumed in tmux")
+        session = _transition_status(session, SessionStatus.RUNNING, note="Resumed from Codex history")
+        _event(
+            session.id,
+            "session_resumed",
+            "Session resumed from Codex history in tmux",
+            {
+                "codex_session_id": session.codex_session_id,
+                "codex_rollout_path": session.codex_rollout_path,
+            },
+        )
         return session, client.attach_command(session.tmux_session)
 
     raise SessionError("session cannot be resumed automatically")

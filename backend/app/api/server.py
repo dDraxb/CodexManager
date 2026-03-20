@@ -59,6 +59,8 @@ class AdoptRequest(BaseModel):
 
 class CodexSessionLinkRequest(BaseModel):
     codex_session_id: str = Field(alias="codexSessionId")
+    codex_rollout_path: str | None = Field(default=None, alias="codexRolloutPath")
+    codex_updated_at: int | None = Field(default=None, alias="codexUpdatedAt")
 
 
 def _session_or_404(session_id: str):
@@ -218,7 +220,12 @@ def session_resume(session_id: str) -> dict:
 @app.post("/api/sessions/{session_id}/codex-session-link")
 def session_codex_session_link(session_id: str, request: CodexSessionLinkRequest) -> dict:
     try:
-        session = set_codex_session_id(session_id, request.codex_session_id)
+        session = set_codex_session_id(
+            session_id,
+            request.codex_session_id,
+            codex_rollout_path=request.codex_rollout_path,
+            codex_updated_at=request.codex_updated_at,
+        )
     except SessionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return asdict(session)

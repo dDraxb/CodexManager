@@ -180,6 +180,7 @@ export default function App() {
   )
   const canAct = !!selectedSession
   const canAttach = !!selectedSession && !(selectedSession.mode === 'adopted' && !selectedSession.started_at)
+  const canResumeFromHistory = !!selectedSession?.codex_session_id && !canAttach
   const pollIntervalSeconds = Date.now() < fastPollUntil ? 2 : refresh
 
   useEffect(() => {
@@ -393,10 +394,10 @@ export default function App() {
     if (action === 'resume') {
       const payload = await runRequest(
         () => fetchJson(`/api/sessions/${selectedSession.id}/resume`, { method: 'POST' }),
-        () => `Resume command ready for ${selectedSession.name}`
+        () => `History resume ready for ${selectedSession.name}`
       )
       if (!payload) return
-      await copyOrNotify(payload.command, 'Resume attach command copied to clipboard')
+      await copyOrNotify(payload.command, 'History resume attach command copied to clipboard')
       await refreshAfterMutation(selectedSession.id)
       return
     }
@@ -462,7 +463,11 @@ export default function App() {
         fetchJson(`/api/sessions/${selectedSession.id}/codex-session-link`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ codexSessionId: thread.id })
+          body: JSON.stringify({
+            codexSessionId: thread.id,
+            codexRolloutPath: thread.rollout_path || null,
+            codexUpdatedAt: thread.updated_at || null
+          })
         }),
       () => `Resume target updated to ${thread.id}`
     )
@@ -825,25 +830,70 @@ export default function App() {
           <p>Changed files: {detail?.changed_files_count ?? 0}</p>
           <p className="muted">{detail?.worktree_path || detail?.repo_path || '-'}</p>
         </article>
+      </section>
 
-        <article className="card">
+      <section className="execution-panel-wrap">
+        <article className="panel execution-card execution-panel">
           <h3>Execution</h3>
-          <p>Permissions: {detail?.profile || '-'}</p>
-          <p>Approval: {detail?.approval_policy || '-'}</p>
-          <p className="muted">tmux: {detail?.tmux_session || '-'}</p>
-          <p className="muted">Codex session: {detail?.codex_session_id || 'pending capture'}</p>
-          <p className="muted">Attachment: {detail?.attachment_state || 'detached'}</p>
-          <p className="muted">Resume target: {detail?.codex_session_id || 'no linked Codex thread yet'}</p>
-          {selectedSession?.mode === 'adopted' && !selectedSession?.started_at ? (
-            <p className="muted">Adopted sessions need `Resume` before an attach command exists.</p>
-          ) : null}
-          <p className="muted">CHANGELOG discipline: {detail?.require_changelog ? 'required' : 'optional'}</p>
-          <div className="actions">
-            <button disabled={!canAttach} onClick={() => runAction('attach')}>Copy Attach Command</button>
-            <button disabled={!canAct} onClick={() => runAction('resume')}>Resume</button>
-            <button disabled={!canAct} className="ghost" onClick={() => loadResumePoints()}>Choose Resume Point</button>
-            <button disabled={!canAct} className="danger" onClick={() => runAction('stop')}>Stop</button>
-            <button disabled={!canAct} className="danger" onClick={() => runAction('delete')}>Delete</button>
+          <div className="execution-badges">
+            <span className="badge badge-stopped">{detail?.profile || '-'}</span>
+            <span className="badge badge-stopped">{detail?.approval_policy || '-'}</span>
+            <span className={attachmentBadgeClass(detail?.attachment_state)}>{detail?.attachment_state || 'detached'}</span>
+          </div>
+          <div className="execution-layout">
+            <div className="execution-main">
+              <div className="execution-section">
+                <p className="execution-section-title">Live Transport</p>
+                <div className="execution-grid">
+                  <div className="execution-item">
+                    <span className="execution-label">tmux session</span>
+                    <span className="execution-value execution-code">{detail?.tmux_session || '-'}</span>
+                  </div>
+                  <div className="execution-item">
+                    <span className="execution-label">Attach state</span>
+                    <span className="execution-value">{detail?.attachment_state || 'detached'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="execution-section">
+                <p className="execution-section-title">Codex History Target</p>
+                <div className="execution-grid">
+                  <div className="execution-item execution-item-wide">
+                    <span className="execution-label">Codex session</span>
+                    <span className="execution-value execution-code">{detail?.codex_session_id || 'pending capture'}</span>
+                  </div>
+                  <div className="execution-item execution-item-wide">
+                    <span className="execution-label">History file</span>
+                    <span className="execution-value execution-code">{detail?.codex_rollout_path || 'not linked yet'}</span>
+                  </div>
+                  <div className="execution-item">
+                    <span className="execution-label">History updated</span>
+                    <span className="execution-value">{detail?.codex_updated_at ? formatCodexTimestamp(detail.codex_updated_at) : 'unknown'}</span>
+                  </div>
+                  <div className="execution-item">
+                    <span className="execution-label">Changelog discipline</span>
+                    <span className="execution-value">{detail?.require_changelog ? 'required' : 'optional'}</span>
+                  </div>
+                </div>
+              </div>
+              {selectedSession?.mode === 'adopted' && !selectedSession?.started_at ? (
+                <div className="execution-note">
+                  Adopted sessions need `Resume from History` before a live attach command exists.
+                </div>
+              ) : null}
+            </div>
+            <div className="execution-side">
+              <div className="execution-section execution-actions-panel">
+                <p className="execution-section-title">Actions</p>
+                <div className="actions execution-actions">
+                  <button disabled={!canAttach} onClick={() => runAction('attach')}>Attach Live Session</button>
+                  <button disabled={!canResumeFromHistory} onClick={() => runAction('resume')}>Resume from History</button>
+                  <button disabled={!canAct} className="ghost" onClick={() => loadResumePoints()}>Choose Resume Point</button>
+                  <button disabled={!canAct} className="danger" onClick={() => runAction('stop')}>Stop</button>
+                  <button disabled={!canAct} className="danger execution-delete" onClick={() => runAction('delete')}>Delete</button>
+                </div>
+              </div>
+            </div>
           </div>
           {showResumeChooser ? (
             <div className="history-browser resume-browser">

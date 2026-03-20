@@ -101,12 +101,21 @@ def _record_validation_state(session_id: str, *, test_status: str, lint_status: 
         )
 
 
-def _record_codex_session_id(session_id: str, codex_session_id: str) -> None:
+def _record_codex_history_target(
+    session_id: str,
+    codex_session_id: str,
+    codex_rollout_path: str | None,
+    codex_updated_at: int | None,
+) -> None:
     timestamp = datetime.now(UTC).replace(microsecond=0).isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?",
-            (codex_session_id, timestamp, session_id),
+            """
+            UPDATE sessions
+            SET codex_session_id = ?, codex_rollout_path = ?, codex_updated_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (codex_session_id, codex_rollout_path, codex_updated_at, timestamp, session_id),
         )
 
 
@@ -165,14 +174,74 @@ def _refresh_codex_session_link(session, client: RunnerClient) -> None:
     if not codex_session_id:
         return
 
-    _record_codex_session_id(session.id, codex_session_id)
+    thread = next(
+        (
+            item
+            for item in client.list_resume_candidates(codex_session_id, session.cwd, session.prompt, limit=1)
+            if item.get("id") == codex_session_id
+        ),
+        None,
+    )
+    _record_codex_history_target(
+        session.id,
+        codex_session_id,
+        str(thread.get("rollout_path")) if thread and thread.get("rollout_path") else None,
+        int(thread.get("updated_at")) if thread and thread.get("updated_at") is not None else None,
+    )
     _event(
         session.id,
         "codex_session_linked",
         "Linked Codex history session",
-        {"codex_session_id": codex_session_id},
+        {
+            "codex_session_id": codex_session_id,
+            "codex_rollout_path": thread.get("rollout_path") if thread else None,
+            "codex_updated_at": thread.get("updated_at") if thread else None,
+        },
     )
     session.codex_session_id = codex_session_id
+    if thread:
+        session.codex_rollout_path = str(thread.get("rollout_path")) if thread.get("rollout_path") else None
+        session.codex_updated_at = int(thread.get("updated_at")) if thread.get("updated_at") is not None else None
+
+
+def _backfill_codex_history_target(session, client: RunnerClient) -> None:
+    if not session.codex_session_id:
+        return
+    if session.codex_rollout_path and session.codex_updated_at is not None:
+        return
+
+    try:
+        thread = next(
+            (
+                item
+                for item in client.list_resume_candidates(session.codex_session_id, session.cwd, session.prompt, limit=1)
+                if item.get("id") == session.codex_session_id
+            ),
+            None,
+        )
+    except RunnerError:
+        return
+    if not thread:
+        return
+
+    rollout_path = str(thread.get("rollout_path")) if thread.get("rollout_path") else None
+    updated_at = int(thread.get("updated_at")) if thread.get("updated_at") is not None else None
+    if rollout_path == session.codex_rollout_path and updated_at == session.codex_updated_at:
+        return
+
+    _record_codex_history_target(session.id, session.codex_session_id, rollout_path, updated_at)
+    _event(
+        session.id,
+        "codex_history_backfilled",
+        "Codex history target metadata backfilled",
+        {
+            "codex_session_id": session.codex_session_id,
+            "codex_rollout_path": rollout_path,
+            "codex_updated_at": updated_at,
+        },
+    )
+    session.codex_rollout_path = rollout_path
+    session.codex_updated_at = updated_at
 
 
 
@@ -183,6 +252,7 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
     for session in list_sessions():
         session = refresh_git_state(session, runner=client)
         attachment_changed = False
+        _backfill_codex_history_target(session, client)
 
         if session.status in {SessionStatus.FINISHED.value, SessionStatus.FAILED.value, SessionStatus.STOPPED.value}:
             continue

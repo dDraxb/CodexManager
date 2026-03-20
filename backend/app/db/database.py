@@ -43,6 +43,8 @@ def init_db() -> None:
                 'created','starting','running','waiting_input','idle','finished','failed','stopped','lost'
               )),
               codex_session_id TEXT,
+              codex_rollout_path TEXT,
+              codex_updated_at INTEGER,
               repo_path TEXT NOT NULL,
               worktree_path TEXT,
               branch TEXT,
@@ -113,6 +115,8 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
         ("observability", "ALTER TABLE sessions ADD COLUMN observability TEXT NOT NULL DEFAULT 'full'"),
         ("needs_attention", "ALTER TABLE sessions ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0"),
         ("require_changelog", "ALTER TABLE sessions ADD COLUMN require_changelog INTEGER NOT NULL DEFAULT 0"),
+        ("codex_rollout_path", "ALTER TABLE sessions ADD COLUMN codex_rollout_path TEXT"),
+        ("codex_updated_at", "ALTER TABLE sessions ADD COLUMN codex_updated_at INTEGER"),
         ("attachment_state", "ALTER TABLE sessions ADD COLUMN attachment_state TEXT"),
         ("last_attached_at", "ALTER TABLE sessions ADD COLUMN last_attached_at TEXT"),
         ("last_detached_at", "ALTER TABLE sessions ADD COLUMN last_detached_at TEXT"),

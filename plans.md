@@ -215,47 +215,39 @@ V2 should build on that foundation in a clear priority order.
 
 ### V2 Priority 1 - True Codex history resume and adoption
 
-This is the top V2 item.
+Status: substantially complete.
 
-The current product is very good at reattaching to a live tmux-backed Codex process.
-It is much weaker at reconstructing work once that original process is gone.
+The current product now supports both live tmux reattach and historical Codex resume in a first-class way.
 
 That distinction matters:
 - `tmux attach` reconnects to the exact running Codex process
 - `codex resume <session-id>` starts a new Codex process and asks Codex itself to restore prior history
 
-Today, manager-created sessions are strongest in the first mode.
-Adopted sessions and older historical sessions depend on the second mode.
-That creates an inconsistency:
-- live sessions feel seamless
-- older sessions are harder to re-enter cleanly
-- users with many prior Codex sessions do not yet get a first-class import/adopt/resume experience
-
-V2 should close that gap directly.
+The original inconsistency has now been largely closed:
+- managed sessions can capture and persist the real Codex thread id after startup
+- managed sessions can resume from Codex history after tmux is gone
+- adopted sessions can browse and choose exact Codex history targets before resume
+- the UI now separates `Attach live session` from `Resume from History`
+- recent Codex history can be loaded globally, by repo path, or by exact Codex thread id
 
 The product goal is:
 - every important session should be resumable from the manager even after the original tmux process is gone
 - older Codex history should be importable and adoptable in a structured way
 - the manager should make a clear distinction between “attach to live process” and “resume from Codex history”
 
-This requires several concrete capabilities:
+Completed capabilities:
 
 #### Persist the real Codex session id for managed sessions
 
-Right now, manager-created sessions have a manager session id and a tmux session name, but the real underlying Codex conversation/session id is not yet a first-class captured field for the managed-session lifecycle.
-
-V2 should:
+Implemented:
 - detect the Codex session id shortly after managed-session startup
 - persist it on the manager session record
-- keep it visible in the UI and CLI when available
-
-That is the key enabler for historical resume after tmux is gone.
+- persist linked history metadata such as rollout path and last-updated timestamp
+- keep that metadata visible in the UI when available
 
 #### Separate two different reopen actions in the product
 
-The manager should stop treating all “resume/open” flows as conceptually the same.
-
-It should expose two distinct actions:
+Implemented:
 - `Attach live session`
   Reconnect to an existing tmux-backed Codex process.
 - `Resume from Codex history`
@@ -267,9 +259,7 @@ This is important because the user experience is different:
 
 #### First-class historical adoption/import
 
-The manager should become good at taking previously created Codex sessions and making them manageable.
-
-That means:
+Implemented:
 - import or browse session history from `CODEX_HOME`
 - inspect prior session metadata before adoption
 - adopt older sessions into the manager with clear provenance
@@ -279,25 +269,27 @@ This is especially important for users who already have many valuable prior Code
 
 #### Better operator semantics around continuity
 
-The product should make clear what kind of continuity the user is getting:
+Implemented:
 - exact live continuation
 - historical conversational continuation
 - manager-local metadata continuity
 
-This removes a lot of current ambiguity around ids and “what exactly am I reopening?”
+The current UI and metadata now remove most of the old ambiguity around ids and “what exactly am I reopening?”
 
 #### Reliability requirements
 
-This feature should not be implemented as a brittle one-off parser.
-It needs a defensible approach for:
+Implemented:
 - detecting and persisting Codex session ids
 - handling missing or unavailable ids gracefully
 - surviving changes in Codex output format where possible
 - testing both live attach and historical resume flows
 
-This is not a V1 blocker, but it is the most important next capability because it unlocks the manager as a real home for both new work and prior work.
+Remaining limitation:
+- Codex’s public CLI currently resumes by thread/session UUID or picker selection. It does not expose a public flag for “resume this exact internal checkpoint/version within a thread.”
+- The manager now persists and surfaces the best available exact target metadata: thread id plus rollout path and updated timestamp.
+- If Codex later exposes a finer-grained resume target in the CLI or state store, the manager should adopt it, but this is now an external product limitation rather than a manager architecture gap.
 
-After this top-priority item, V2 should continue in these broader layers:
+With this in place, the next major V2 work should continue in these broader layers:
 - execution intelligence
 - engineering workflow intelligence
 - collaboration/handoff intelligence

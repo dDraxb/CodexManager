@@ -83,6 +83,26 @@ class RecordingRunner:
         self.calls.append(("find_recent_codex_session", cwd, prompt, since))
         return None
 
+    def list_codex_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        self.calls.append(("list_codex_threads", cwd, query, limit))
+        return []
+
+    def list_resume_candidates(self, thread_id: str | None, cwd: str | None, prompt: str | None, limit: int = 12) -> list[dict]:
+        self.calls.append(("list_resume_candidates", thread_id, cwd, prompt, limit))
+        if thread_id:
+            return [
+                {
+                    "id": thread_id,
+                    "cwd": cwd,
+                    "created_at": 1,
+                    "updated_at": 2,
+                    "title": prompt or "resume target",
+                    "first_user_message": prompt or "resume target",
+                    "rollout_path": "/tmp/rollout.jsonl",
+                }
+            ]
+        return []
+
     def session_exists(self, session_name: str) -> bool:
         self.calls.append(("session_exists", session_name))
         return self.session_exists_value
@@ -360,6 +380,45 @@ def test_resume_adopted_session_persists_started_at_and_pid(configured_modules, 
     assert refreshed is not None
     assert refreshed.started_at is not None
     assert refreshed.pid == 4321
+    assert refreshed.codex_rollout_path is None
+
+
+def test_resume_managed_session_can_fall_back_to_codex_history(configured_modules, git_repo):
+    from app.services.sessions import create_managed_session, get_session, resume_session, set_codex_session_id
+
+    runner = RecordingRunner(str(git_repo), session_exists=False)
+
+    session = create_managed_session(
+        name="resume-managed-history-session",
+        repo_path=str(git_repo),
+        profile="safe-edit",
+        prompt="Refactor service layer",
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=False,
+        runner=runner,
+    )
+    session = set_codex_session_id(
+        session.id,
+        "019ce115-d070-7053-b385-870d5e021ea7",
+        codex_rollout_path="/tmp/rollout.jsonl",
+        codex_updated_at=2,
+    )
+
+    resumed, command = resume_session(session.id, runner=runner)
+    refreshed = get_session(session.id)
+
+    assert resumed.status == "running"
+    assert command == f"tmux attach -t {session.tmux_session}"
+    assert refreshed is not None
+    assert refreshed.started_at is not None
+    assert refreshed.pid == 4321
+    assert any(
+        call[0] == "create_session"
+        and call[4] == "codex --profile safe-edit resume 019ce115-d070-7053-b385-870d5e021ea7"
+        for call in runner.calls
+    )
 
 
 def test_reconcile_once_moves_idle_session_to_running_on_new_pane_output(configured_modules, git_repo):
@@ -496,6 +555,8 @@ def test_reconcile_once_links_managed_session_to_codex_history(configured_module
 
     assert refreshed is not None
     assert refreshed.codex_session_id == "019ce115-d070-7053-b385-870d5e021ea7"
+    assert refreshed.codex_rollout_path == "/tmp/rollout.jsonl"
+    assert refreshed.codex_updated_at == 2
     assert any(call[0] == "find_recent_codex_session" and call[1] == str(git_repo) for call in runner.calls)
 
     events = list_events(session.id)
@@ -503,6 +564,36 @@ def test_reconcile_once_links_managed_session_to_codex_history(configured_module
         event.type == "codex_session_linked" and "019ce115-d070-7053-b385-870d5e021ea7" in event.metadata_json
         for event in events
     )
+
+
+def test_reconcile_once_backfills_codex_history_metadata_for_existing_session(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session, list_events, set_codex_session_id
+
+    runner = RecordingRunner(str(git_repo), session_exists=False)
+
+    session = create_managed_session(
+        name="backfill-codex-history-target",
+        repo_path=str(git_repo),
+        profile="safe-edit",
+        prompt="Refactor service layer",
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=False,
+        runner=runner,
+    )
+    set_codex_session_id(session.id, "019ce115-d070-7053-b385-870d5e021ea7")
+
+    reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert refreshed is not None
+    assert refreshed.codex_rollout_path == "/tmp/rollout.jsonl"
+    assert refreshed.codex_updated_at == 2
+
+    events = list_events(session.id)
+    assert any(event.type == "codex_history_backfilled" for event in events)
 
 
 def test_reconcile_once_does_not_wake_idle_session_on_attachment_only(configured_modules, git_repo):

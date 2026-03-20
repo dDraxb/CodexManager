@@ -343,8 +343,14 @@ def test_api_can_update_codex_session_link(configured_modules, git_repo):
 
     response = client.post(
         f"/api/sessions/{session_id}/codex-session-link",
-        json={"codexSessionId": "019ce115-d070-7053-b385-870d5e021ea7"},
+        json={
+            "codexSessionId": "019ce115-d070-7053-b385-870d5e021ea7",
+            "codexRolloutPath": "/tmp/rollout.jsonl",
+            "codexUpdatedAt": 2,
+        },
     )
 
     assert response.status_code == 200
     assert response.json()["codex_session_id"] == "019ce115-d070-7053-b385-870d5e021ea7"
+    assert response.json()["codex_rollout_path"] == "/tmp/rollout.jsonl"
+    assert response.json()["codex_updated_at"] == 2

@@ -86,6 +86,8 @@ class SessionRecord:
     mode: str
     status: str
     codex_session_id: str | None
+    codex_rollout_path: str | None
+    codex_updated_at: int | None
     repo_path: str
     worktree_path: str | None
     branch: str | None
