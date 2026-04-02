@@ -10,7 +10,7 @@ from app.runner.contracts import RunnerError
 
 
 class RepoPathRequest(BaseModel):
-    repo_path: str
+    repo_path: str | None = None
 
 
 class EnsureGitRepoRequest(BaseModel):

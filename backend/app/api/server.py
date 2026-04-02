@@ -40,7 +40,7 @@ app.add_middleware(
 
 class StartRequest(BaseModel):
     name: str
-    repo_path: str = Field(alias="repoPath")
+    repo_path: str | None = Field(default=None, alias="repoPath")
     profile: str = "safe-edit"
     prompt: str | None = None
     approval_policy: str = Field(default="on-request", alias="approvalPolicy")

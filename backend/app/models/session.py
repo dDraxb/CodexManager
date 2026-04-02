@@ -105,8 +105,31 @@ class SessionRecord:
     last_known_activity: str | None
     changed_files_count: int
     changed_files_preview: str
+    work_phase: str | None
+    work_phase_confidence: str | None
+    work_phase_reason: str | None
+    last_major_phase: str | None
+    last_major_phase_confidence: str | None
+    last_major_phase_reason: str | None
+    block_category: str | None
+    block_reason: str | None
+    health_score: int
+    health_label: str
+    health_reason: str
+    health_evidence: str | None
+    priority_score: int
+    priority_reason: str
+    priority_evidence: str | None
+    repo_risk_label: str
+    repo_risk_reason: str
+    repo_overlap_count: int
+    repo_overlap_preview: str
+    test_activity: str | None
     test_status: str | None
+    test_status_at: str | None
+    lint_activity: str | None
     lint_status: str | None
+    lint_status_at: str | None
     exit_code: int | None
     log_path: str
     cwd: str | None

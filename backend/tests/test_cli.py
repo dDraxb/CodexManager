@@ -122,6 +122,36 @@ def test_cli_start_require_changelog(configured_modules, git_repo):
     assert "changelog-task" in changelog.read_text(encoding="utf-8")
 
 
+def test_cli_start_without_repo_defaults_to_home(configured_modules, tmp_path, monkeypatch):
+    from app.cli import main as cli_main
+
+    importlib.reload(cli_main)
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    result = runner.invoke(
+        cli_main.app,
+        [
+            "start",
+            "--name",
+            "home-default",
+            "--profile",
+            "safe-edit",
+            "--no-launch",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(cli_main.app, ["inspect", "home-default"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["repo_path"] == str(home_dir.resolve())
+    assert payload["cwd"] == str(home_dir.resolve())
+    assert payload["target_label"] == "home"
+
+
 def test_cli_runner_command(configured_modules, monkeypatch):
     from app.cli import main as cli_main
 

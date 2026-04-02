@@ -104,7 +104,7 @@ def _transition_status(session: SessionRecord, new_status: SessionStatus, *, not
 def create_managed_session(
     *,
     name: str,
-    repo_path: str,
+    repo_path: str | None,
     profile: str,
     prompt: str | None,
     approval_policy: str,
@@ -119,8 +119,9 @@ def create_managed_session(
         raise SessionError(f"invalid profile '{profile}'")
 
     client = runner or get_runner_client()
+    input_path = repo_path.strip() if isinstance(repo_path, str) else ""
     try:
-        repo = client.resolve_repo_path(repo_path)
+        repo = client.resolve_repo_path(input_path or None)
     except RunnerError as exc:
         raise SessionError(str(exc)) from exc
 
@@ -164,11 +165,13 @@ def create_managed_session(
                   id, name, mode, status, codex_session_id, codex_rollout_path, codex_updated_at, repo_path, worktree_path, branch,
                   profile, approval_policy, allow_write, allow_shell, tmux_session, pid,
                   prompt, created_at, started_at, finished_at, last_activity_at,
-                  last_known_activity, changed_files_count, changed_files_preview,
-                  test_status, lint_status, exit_code, log_path, cwd, target_label,
+                  last_known_activity, changed_files_count, changed_files_preview, work_phase, work_phase_confidence,
+                  last_major_phase, last_major_phase_confidence, block_category, block_reason, health_score, health_label, health_reason, health_evidence, priority_score, priority_reason, priority_evidence, repo_risk_label, repo_risk_reason,
+                  repo_overlap_count, repo_overlap_preview,
+                  test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at, exit_code, log_path, cwd, target_label,
                   observability, needs_attention, require_changelog, attachment_state, last_attached_at, last_detached_at,
                   output_fingerprint, output_observed_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -195,12 +198,33 @@ def create_managed_session(
                     "Session created",
                     len(changed_files_preview),
                     json.dumps(changed_files_preview[:10]),
+                    "planning",
+                    "low",
+                    "planning",
+                    "low",
+                    None,
+                    None,
+                    82,
+                    "healthy",
+                    "session is starting",
+                    "the session is still in startup flow",
+                    46,
+                    "starting up",
+                    "the session is still in startup flow",
+                    "low",
+                    "repo state looks normal",
+                    0,
+                    "[]",
+                    "none",
                     "unknown",
+                    None,
+                    "none",
                     "unknown",
+                    None,
                     None,
                     log_path,
                     cwd,
-                    Path(repo).name,
+                    "home" if not input_path else Path(repo).name,
                     "full",
                     0,
                     1 if require_changelog else 0,
@@ -293,11 +317,13 @@ def adopt_session(
                   id, name, mode, status, codex_session_id, codex_rollout_path, codex_updated_at, repo_path, worktree_path, branch,
                   profile, approval_policy, allow_write, allow_shell, tmux_session, pid,
                   prompt, created_at, started_at, finished_at, last_activity_at,
-                  last_known_activity, changed_files_count, changed_files_preview,
-                  test_status, lint_status, exit_code, log_path, cwd, target_label,
+                  last_known_activity, changed_files_count, changed_files_preview, work_phase, work_phase_confidence,
+                  last_major_phase, last_major_phase_confidence, block_category, block_reason, health_score, health_label, health_reason, health_evidence, priority_score, priority_reason, priority_evidence, repo_risk_label, repo_risk_reason,
+                  repo_overlap_count, repo_overlap_preview,
+                  test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at, exit_code, log_path, cwd, target_label,
                   observability, needs_attention, require_changelog, attachment_state, last_attached_at, last_detached_at,
                   output_fingerprint, output_observed_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -325,7 +351,28 @@ def adopt_session(
                     0,
                     "[]",
                     "unknown",
+                    "low",
                     "unknown",
+                    "low",
+                    None,
+                    None,
+                    62,
+                    "monitor",
+                    "idle and detached",
+                    "the session is idle and no terminal is attached",
+                    52,
+                    "worth monitoring",
+                    "health assessment says the session should be monitored",
+                    "low",
+                    "repo state looks normal",
+                    0,
+                    "[]",
+                    "none",
+                    "unknown",
+                    None,
+                    "none",
+                    "unknown",
+                    None,
                     None,
                     log_path,
                     repo,

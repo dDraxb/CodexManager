@@ -30,10 +30,12 @@ class LocalRunnerClient(RunnerClient):
             return ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"]
         raise RunnerError(f"invalid profile '{profile}'")
 
-    def resolve_repo_path(self, repo_path: str) -> str:
-        repo = str(Path(repo_path).expanduser().resolve())
-        if not Path(repo).exists():
-            raise RunnerError(f"repo path is not accessible: {repo}")
+    def resolve_repo_path(self, repo_path: str | None) -> str:
+        raw_path = repo_path.strip() if isinstance(repo_path, str) else ""
+        target = Path(raw_path).expanduser() if raw_path else Path.home()
+        repo = str(target.resolve())
+        if not Path(repo).exists() or not Path(repo).is_dir():
+            raise RunnerError(f"working directory is not accessible: {repo}")
         return repo
 
     def build_codex_launch_command(self, profile: str, prompt: str | None) -> str:
@@ -166,7 +168,7 @@ class RemoteRunnerClient(RunnerClient):
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
 
-    def resolve_repo_path(self, repo_path: str) -> str:
+    def resolve_repo_path(self, repo_path: str | None) -> str:
         payload = self._post("/resolve-repo-path", {"repo_path": repo_path})
         return str(payload["repo_path"])
 

@@ -23,6 +23,15 @@ def test_api_start_and_list(configured_modules, git_repo):
         },
     )
     assert response.status_code == 200, response.text
+    assert response.json()["work_phase"] == "planning"
+    assert response.json()["work_phase_confidence"] == "low"
+    assert response.json()["last_major_phase"] == "planning"
+    assert response.json()["last_major_phase_confidence"] == "low"
+    assert response.json()["block_category"] is None
+    assert response.json()["block_reason"] is None
+    assert response.json()["health_label"] == "healthy"
+    assert response.json()["priority_score"] == 46
+    assert response.json()["repo_risk_label"] == "low"
 
     response = client.get("/api/sessions")
     assert response.status_code == 200
@@ -30,6 +39,13 @@ def test_api_start_and_list(configured_modules, git_repo):
     assert len(rows) == 1
 
     sid = rows[0]["id"]
+    assert rows[0]["work_phase"] == "planning"
+    assert rows[0]["work_phase_confidence"] == "low"
+    assert rows[0]["last_major_phase"] == "planning"
+    assert rows[0]["last_major_phase_confidence"] == "low"
+    assert rows[0]["health_label"] == "healthy"
+    assert rows[0]["priority_score"] == 46
+    assert rows[0]["repo_risk_label"] == "low"
     response = client.get(f"/api/sessions/{sid}")
     assert response.status_code == 200
 
@@ -104,7 +120,33 @@ def test_api_start_missing_path_returns_400(configured_modules):
         },
     )
     assert response.status_code == 400
-    assert "repo path is not accessible" in response.text
+    assert "working directory is not accessible" in response.text
+
+
+def test_api_start_without_path_defaults_to_runner_home(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "home-default",
+            "profile": "safe-edit",
+            "launch": False,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["repo_path"] == str(home_dir.resolve())
+    assert payload["cwd"] == str(home_dir.resolve())
+    assert payload["target_label"] == "home"
 
 
 def test_api_delete_session(configured_modules, git_repo):

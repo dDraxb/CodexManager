@@ -253,6 +253,12 @@ def test_create_managed_session_launch_stays_starting_until_activity(configured_
     )
 
     assert session.status == SessionStatus.STARTING.value
+    assert session.work_phase == "planning"
+    assert session.work_phase_confidence == "low"
+    assert session.last_major_phase == "planning"
+    assert session.last_major_phase_confidence == "low"
+    assert session.health_label == "healthy"
+    assert session.priority_score == 46
     events = list_events(session.id)
     assert any(event.type == "tmux_session_started" for event in events)
     assert not any(event.type == "status_changed" and event.message == "starting -> running" for event in events)
@@ -519,12 +525,153 @@ def test_reconcile_once_updates_validation_status_and_attention(configured_modul
     assert refreshed is not None
     assert refreshed.test_status == "passed"
     assert refreshed.lint_status == "failed"
+    assert refreshed.work_phase == "testing"
+    assert refreshed.work_phase_confidence == "high"
+    assert refreshed.last_major_phase == "testing"
+    assert refreshed.last_major_phase_confidence == "high"
+    assert refreshed.health_label == "attention"
+    assert refreshed.priority_score >= 88
     assert refreshed.needs_attention == 1
 
     events = list_events(session.id)
     validation_events = [event.message for event in events if event.type == "validation_changed"]
     assert "Tests passed" in validation_events
     assert "Lint failed" in validation_events
+    assert any(event.type == "work_phase_changed" and event.message == "Phase -> testing" for event in events)
+
+
+def test_reconcile_once_backfills_validation_result_from_full_log(configured_modules, git_repo):
+    from pathlib import Path
+
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session
+
+    class QuietRunner(RecordingRunner):
+        def capture_pane(self, session_name: str, tail: int = 200) -> list[str]:
+            self.calls.append(("capture_pane", session_name, tail))
+            return ["Session is idle now."]
+
+    runner = QuietRunner(str(git_repo), session_exists=True)
+
+    session = create_managed_session(
+        name="validation-backfill-session",
+        repo_path=str(git_repo),
+        profile="read-only",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+    Path(session.log_path).write_text(
+        "\n".join(
+            [
+                "Earlier output",
+                "• Ran ./bin/smoke_test.sh",
+                "[6/6] PASS",
+                "Smoke test succeeded.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert refreshed is not None
+    assert refreshed.test_activity == "none"
+    assert refreshed.test_status == "passed"
+    assert refreshed.test_status_at is not None
+
+
+def test_reconcile_once_marks_blocked_phase_from_environment_errors(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session
+
+    class BlockedRunner(RecordingRunner):
+        def capture_pane(self, session_name: str, tail: int = 200) -> list[str]:
+            self.calls.append(("capture_pane", session_name, tail))
+            return [
+                "Running smoke flow",
+                "Smoke test is blocked on missing environment variable",
+                "command not found: codex",
+            ]
+
+    runner = BlockedRunner(str(git_repo), session_exists=True)
+
+    session = create_managed_session(
+        name="blocked-phase-session",
+        repo_path=str(git_repo),
+        profile="read-only",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+
+    reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert refreshed is not None
+    assert refreshed.work_phase == "blocked"
+    assert refreshed.work_phase_confidence == "high"
+    assert refreshed.last_major_phase == "blocked"
+    assert refreshed.last_major_phase_confidence == "high"
+    assert refreshed.block_category == "tooling"
+    assert refreshed.block_reason == "command not found"
+    assert refreshed.health_label == "attention"
+    assert refreshed.priority_score >= 95
+
+
+def test_reconcile_once_flags_same_repo_live_session_conflict(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session
+
+    class OverlapRunner(RecordingRunner):
+        def changed_files(self, repo_path: str, cwd: str | None) -> list[str]:
+            self.calls.append(("changed_files", repo_path, cwd))
+            if cwd and "repo-conflict-a" in cwd:
+                return ["backend/app/api/server.py", "README.md"]
+            return ["backend/app/api/server.py"]
+
+    runner = OverlapRunner(str(git_repo), session_exists=True)
+
+    session_a = create_managed_session(
+        name="repo-conflict-a",
+        repo_path=str(git_repo),
+        profile="safe-edit",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+    session_b = create_managed_session(
+        name="repo-conflict-b",
+        repo_path=str(git_repo),
+        profile="safe-edit",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+
+    reconcile_once(runner=runner)
+    refreshed_a = get_session(session_a.id)
+    refreshed_b = get_session(session_b.id)
+
+    assert refreshed_a is not None and refreshed_b is not None
+    assert refreshed_a.repo_risk_label == "high"
+    assert refreshed_b.repo_risk_label == "high"
+    assert refreshed_a.repo_risk_reason == "multiple live sessions are changing the same files without isolation: backend/app/api/server.py"
+    assert refreshed_b.repo_risk_reason == "multiple live sessions are changing the same files without isolation: backend/app/api/server.py"
 
 
 def test_reconcile_once_links_managed_session_to_codex_history(configured_modules, git_repo):

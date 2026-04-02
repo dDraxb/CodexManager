@@ -5,9 +5,10 @@ from dataclasses import dataclass
 
 
 STATUS_UNKNOWN = "unknown"
-STATUS_RUNNING = "running"
 STATUS_PASSED = "passed"
 STATUS_FAILED = "failed"
+ACTIVITY_NONE = "none"
+ACTIVITY_ACTIVE = "active"
 
 TEST_COMMAND_PATTERNS = (
     re.compile(r"\bpytest\b"),
@@ -18,7 +19,7 @@ TEST_COMMAND_PATTERNS = (
     re.compile(r"\bvitest\b"),
     re.compile(r"\bjest\b"),
     re.compile(r"\bsmoke_test\.sh\b"),
-    re.compile(r"\bsmoke test\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:\$|•\s+Ran|•\s+Waited for background terminal\b).*\bsmoke(?:_test\.sh|\s+test)\b", re.IGNORECASE),
 )
 
 TEST_PASS_PATTERNS = (
@@ -33,7 +34,7 @@ TEST_PASS_PATTERNS = (
 
 TEST_FAIL_PATTERNS = (
     re.compile(r"=+\s+.*\bfailed\b.*in\s+"),
-    re.compile(r"\bFAILURES\b", re.IGNORECASE),
+    re.compile(r"^\s*FAILURES\s*$", re.IGNORECASE),
     re.compile(r"test result:\s+FAILED", re.IGNORECASE),
     re.compile(r"^FAIL\s{1,}\S+", re.IGNORECASE),
     re.compile(r"Tests:\s+.*failed", re.IGNORECASE),
@@ -70,31 +71,38 @@ LINT_FAIL_PATTERNS = (
 
 @dataclass(frozen=True, slots=True)
 class ValidationSnapshot:
+    test_activity: str
     test_status: str
+    lint_activity: str
     lint_status: str
 
 
-def _latest_status(lines: list[str], command_patterns, pass_patterns, fail_patterns) -> str:
-    latest_index = -1
-    latest_status = STATUS_UNKNOWN
+def _latest_activity_and_result(lines: list[str], command_patterns, pass_patterns, fail_patterns) -> tuple[str, str]:
+    latest_command_index = -1
+    latest_result_index = -1
+    latest_result = STATUS_UNKNOWN
     for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
         if any(pattern.search(stripped) for pattern in command_patterns):
-            latest_index = index
-            latest_status = STATUS_RUNNING
+            latest_command_index = index
         if any(pattern.search(stripped) for pattern in pass_patterns):
-            latest_index = index
-            latest_status = STATUS_PASSED
+            latest_result_index = index
+            latest_result = STATUS_PASSED
         if any(pattern.search(stripped) for pattern in fail_patterns):
-            latest_index = index
-            latest_status = STATUS_FAILED
-    return latest_status if latest_index >= 0 else STATUS_UNKNOWN
+            latest_result_index = index
+            latest_result = STATUS_FAILED
+    activity = ACTIVITY_ACTIVE if latest_command_index > latest_result_index else ACTIVITY_NONE
+    return activity, latest_result
 
 
 def analyze_validation(lines: list[str]) -> ValidationSnapshot:
+    test_activity, test_status = _latest_activity_and_result(lines, TEST_COMMAND_PATTERNS, TEST_PASS_PATTERNS, TEST_FAIL_PATTERNS)
+    lint_activity, lint_status = _latest_activity_and_result(lines, LINT_COMMAND_PATTERNS, LINT_PASS_PATTERNS, LINT_FAIL_PATTERNS)
     return ValidationSnapshot(
-        test_status=_latest_status(lines, TEST_COMMAND_PATTERNS, TEST_PASS_PATTERNS, TEST_FAIL_PATTERNS),
-        lint_status=_latest_status(lines, LINT_COMMAND_PATTERNS, LINT_PASS_PATTERNS, LINT_FAIL_PATTERNS),
+        test_activity=test_activity,
+        test_status=test_status,
+        lint_activity=lint_activity,
+        lint_status=lint_status,
     )

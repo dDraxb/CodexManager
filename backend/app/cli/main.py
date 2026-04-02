@@ -45,7 +45,7 @@ def _print_session_table(rows: list[dict]) -> None:
 @app.command()
 def start(
     name: str = typer.Option(..., help="Session name"),
-    repo: Path = typer.Option(..., exists=True, file_okay=False, dir_okay=True, help="Repo path"),
+    repo: Path | None = typer.Option(None, exists=True, file_okay=False, dir_okay=True, help="Working directory path"),
     profile: str = typer.Option("safe-edit", help="Permission profile"),
     prompt: str | None = typer.Option(None, help="Task prompt"),
     approval_policy: str = typer.Option("on-request", help="Approval policy label"),
@@ -58,7 +58,7 @@ def start(
     try:
         session = create_managed_session(
             name=name,
-            repo_path=str(repo.expanduser().resolve()),
+            repo_path=str(repo.expanduser().resolve()) if repo is not None else None,
             profile=profile,
             prompt=prompt,
             approval_policy=approval_policy,

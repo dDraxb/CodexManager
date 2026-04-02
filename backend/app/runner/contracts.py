@@ -8,8 +8,8 @@ class RunnerError(RuntimeError):
 
 
 class RunnerClient(Protocol):
-    def resolve_repo_path(self, repo_path: str) -> str:
-        """Validate and normalize a repository path in the execution environment."""
+    def resolve_repo_path(self, repo_path: str | None) -> str:
+        """Validate and normalize a working directory path in the execution environment."""
 
     def build_codex_launch_command(self, profile: str, prompt: str | None) -> str:
         """Build the command used to launch Codex in the execution environment."""

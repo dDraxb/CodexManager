@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,9 +11,22 @@ from app.models.session import SessionStatus
 from app.runner.client import get_runner_client
 from app.runner.contracts import RunnerClient, RunnerError
 from app.services.sessions import _event, list_sessions, refresh_git_state, update_status
+from app.services.health import assess_session_health
+from app.services.priority import assess_session_priority
+from app.services.repo_risk import assess_repo_risk
 from app.services.validation import STATUS_FAILED, analyze_validation
+from app.services.work_phase import (
+    PHASE_UNKNOWN,
+    infer_work_phase,
+)
 
 ATTACH_ACTIVITY_GRACE_SECONDS = 15
+LIVE_REPO_STATUSES = {
+    SessionStatus.CREATED.value,
+    SessionStatus.STARTING.value,
+    SessionStatus.RUNNING.value,
+    SessionStatus.WAITING_INPUT.value,
+}
 
 
 
@@ -82,19 +96,113 @@ def _record_attachment_state(session_id: str, attachment_state: str, timestamp: 
         )
 
 
-def _record_validation_state(session_id: str, *, test_status: str, lint_status: str, needs_attention: bool) -> None:
+def _record_validation_state(
+    session_id: str,
+    *,
+    test_activity: str,
+    test_status: str,
+    test_status_at: str | None,
+    lint_activity: str,
+    lint_status: str,
+    lint_status_at: str | None,
+    needs_attention: bool,
+) -> None:
     with get_conn() as conn:
         conn.execute(
             """
             UPDATE sessions
-            SET test_status = ?, lint_status = ?, needs_attention = ?,
+            SET test_activity = ?, test_status = ?, test_status_at = ?, lint_activity = ?, lint_status = ?, lint_status_at = ?, needs_attention = ?,
                 updated_at = ?
             WHERE id = ?
             """,
             (
+                test_activity,
                 test_status,
+                test_status_at,
+                lint_activity,
                 lint_status,
+                lint_status_at,
                 1 if needs_attention else 0,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+MAJOR_PHASES = {"planning", "reading", "editing", "testing", "blocked", "waiting_input", "reviewing", "completed"}
+
+
+def _record_work_phase(
+    session_id: str,
+    work_phase: str,
+    confidence: str,
+    *,
+    reason: str | None = None,
+    last_major_phase: str | None = None,
+    last_major_phase_confidence: str | None = None,
+    last_major_phase_reason: str | None = None,
+    block_category: str | None = None,
+    block_reason: str | None = None,
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET work_phase = ?, work_phase_confidence = ?, work_phase_reason = ?,
+                last_major_phase = COALESCE(?, last_major_phase),
+                last_major_phase_confidence = COALESCE(?, last_major_phase_confidence),
+                last_major_phase_reason = COALESCE(?, last_major_phase_reason),
+                block_category = ?,
+                block_reason = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                work_phase,
+                confidence,
+                reason,
+                last_major_phase,
+                last_major_phase_confidence,
+                last_major_phase_reason,
+                block_category,
+                block_reason,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _record_health(session_id: str, score: int, label: str, reason: str, evidence: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET health_score = ?, health_label = ?, health_reason = ?, health_evidence = ?, updated_at = ? WHERE id = ?",
+            (score, label, reason, evidence, datetime.now(UTC).replace(microsecond=0).isoformat(), session_id),
+        )
+
+
+def _record_priority(session_id: str, score: int, reason: str, evidence: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET priority_score = ?, priority_reason = ?, priority_evidence = ?, updated_at = ? WHERE id = ?",
+            (score, reason, evidence, datetime.now(UTC).replace(microsecond=0).isoformat(), session_id),
+        )
+
+
+def _record_repo_risk(session_id: str, label: str, reason: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET repo_risk_label = ?, repo_risk_reason = ?, updated_at = ? WHERE id = ?",
+            (label, reason, datetime.now(UTC).replace(microsecond=0).isoformat(), session_id),
+        )
+
+
+def _record_repo_overlap(session_id: str, overlap_paths: list[str]) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET repo_overlap_count = ?, repo_overlap_preview = ?, updated_at = ? WHERE id = ?",
+            (
+                len(overlap_paths),
+                json.dumps(overlap_paths[:10]),
                 datetime.now(UTC).replace(microsecond=0).isoformat(),
                 session_id,
             ),
@@ -125,39 +233,335 @@ def _session_needs_attention(session_status: str, *, test_status: str, lint_stat
     return test_status == STATUS_FAILED or lint_status == STATUS_FAILED
 
 
+def _log_timestamp(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).replace(microsecond=0).isoformat()
+    except OSError:
+        return None
+
+
+def _backfill_validation_from_log(session) -> tuple[str, str, str | None, str, str, str | None]:
+    test_activity = session.test_activity or "none"
+    test_status = session.test_status or "unknown"
+    test_status_at = session.test_status_at
+    lint_activity = session.lint_activity or "none"
+    lint_status = session.lint_status or "unknown"
+    lint_status_at = session.lint_status_at
+    needs_backfill = (
+        (test_status == "unknown" and test_status_at is None)
+        or (lint_status == "unknown" and lint_status_at is None)
+    )
+    if not needs_backfill:
+        return test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at
+
+    log_path = Path(session.log_path)
+    if not log_path.exists():
+        return test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at
+
+    snapshot = analyze_validation(log_path.read_text(encoding="utf-8", errors="replace").splitlines())
+    timestamp = _log_timestamp(log_path)
+    if test_status == "unknown" and snapshot.test_status != "unknown":
+        test_status = snapshot.test_status
+        test_status_at = timestamp
+    if lint_status == "unknown" and snapshot.lint_status != "unknown":
+        lint_status = snapshot.lint_status
+        lint_status_at = timestamp
+    return test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at
+
+
 def _refresh_validation_state(session, lines: list[str]) -> None:
     snapshot = analyze_validation(lines)
-    if snapshot.test_status == session.test_status and snapshot.lint_status == session.lint_status:
+    timestamp = datetime.now(UTC).replace(microsecond=0).isoformat()
+    (
+        effective_test_activity,
+        effective_test_status,
+        effective_test_status_at,
+        effective_lint_activity,
+        effective_lint_status,
+        effective_lint_status_at,
+    ) = _backfill_validation_from_log(session)
+    if snapshot.test_activity != "none":
+        effective_test_activity = snapshot.test_activity
+    if snapshot.test_status != "unknown":
+        effective_test_status = snapshot.test_status
+        if snapshot.test_status != session.test_status:
+            effective_test_status_at = timestamp
+    if snapshot.lint_activity != "none":
+        effective_lint_activity = snapshot.lint_activity
+    if snapshot.lint_status != "unknown":
+        effective_lint_status = snapshot.lint_status
+        if snapshot.lint_status != session.lint_status:
+            effective_lint_status_at = timestamp
+    if (
+        effective_test_activity == session.test_activity
+        and effective_test_status == session.test_status
+        and effective_test_status_at == session.test_status_at
+        and effective_lint_activity == session.lint_activity
+        and effective_lint_status == session.lint_status
+        and effective_lint_status_at == session.lint_status_at
+    ):
         return
 
     needs_attention = _session_needs_attention(
         session.status,
-        test_status=snapshot.test_status,
-        lint_status=snapshot.lint_status,
+        test_status=effective_test_status,
+        lint_status=effective_lint_status,
     )
     _record_validation_state(
         session.id,
-        test_status=snapshot.test_status,
-        lint_status=snapshot.lint_status,
+        test_activity=effective_test_activity,
+        test_status=effective_test_status,
+        test_status_at=effective_test_status_at,
+        lint_activity=effective_lint_activity,
+        lint_status=effective_lint_status,
+        lint_status_at=effective_lint_status_at,
         needs_attention=needs_attention,
     )
-    if snapshot.test_status != session.test_status:
+    if effective_test_activity != session.test_activity:
+        _event(
+            session.id,
+            "validation_activity_changed",
+            f"Tests {effective_test_activity}",
+            {"kind": "tests", "activity": effective_test_activity},
+        )
+        session.test_activity = effective_test_activity
+    if effective_test_status != session.test_status:
         _event(
             session.id,
             "validation_changed",
-            f"Tests {snapshot.test_status}",
-            {"kind": "tests", "status": snapshot.test_status},
+            f"Tests {effective_test_status}",
+            {"kind": "tests", "status": effective_test_status},
         )
-        session.test_status = snapshot.test_status
-    if snapshot.lint_status != session.lint_status:
+        session.test_status = effective_test_status
+        session.test_status_at = effective_test_status_at
+    if effective_lint_activity != session.lint_activity:
+        _event(
+            session.id,
+            "validation_activity_changed",
+            f"Lint {effective_lint_activity}",
+            {"kind": "lint", "activity": effective_lint_activity},
+        )
+        session.lint_activity = effective_lint_activity
+    if effective_lint_status != session.lint_status:
         _event(
             session.id,
             "validation_changed",
-            f"Lint {snapshot.lint_status}",
-            {"kind": "lint", "status": snapshot.lint_status},
+            f"Lint {effective_lint_status}",
+            {"kind": "lint", "status": effective_lint_status},
         )
-        session.lint_status = snapshot.lint_status
+        session.lint_status = effective_lint_status
+        session.lint_status_at = effective_lint_status_at
     session.needs_attention = 1 if needs_attention else 0
+
+
+def _refresh_work_phase(session, lines: list[str]) -> None:
+    snapshot = infer_work_phase(
+        lines=lines,
+        session_status=session.status,
+        changed_files_count=session.changed_files_count,
+        test_activity=session.test_activity,
+        test_status=session.test_status,
+        lint_activity=session.lint_activity,
+        lint_status=session.lint_status,
+        current_phase=session.work_phase,
+        current_confidence=session.work_phase_confidence,
+    )
+    current_phase = session.work_phase or PHASE_UNKNOWN
+    current_confidence = session.work_phase_confidence or "low"
+    current_reason = session.work_phase_reason
+    current_block_category = session.block_category
+    current_block_reason = session.block_reason
+    last_major_missing = not session.last_major_phase or session.last_major_phase == PHASE_UNKNOWN
+    if (
+        snapshot.phase == current_phase
+        and snapshot.confidence == current_confidence
+        and snapshot.reason == current_reason
+        and snapshot.block_category == current_block_category
+        and snapshot.block_reason == current_block_reason
+        and not (last_major_missing and current_phase in MAJOR_PHASES and current_phase != PHASE_UNKNOWN)
+    ):
+        return
+    last_major_phase = snapshot.phase if snapshot.phase in MAJOR_PHASES and snapshot.phase != PHASE_UNKNOWN else None
+    last_major_confidence = snapshot.confidence if last_major_phase else None
+    last_major_reason = snapshot.reason if last_major_phase else None
+    _record_work_phase(
+        session.id,
+        snapshot.phase,
+        snapshot.confidence,
+        reason=snapshot.reason,
+        last_major_phase=last_major_phase,
+        last_major_phase_confidence=last_major_confidence,
+        last_major_phase_reason=last_major_reason,
+        block_category=snapshot.block_category,
+        block_reason=snapshot.block_reason,
+    )
+    _event(
+        session.id,
+        "work_phase_changed",
+        f"Phase -> {snapshot.phase}",
+        {
+            "work_phase": snapshot.phase,
+            "confidence": snapshot.confidence,
+            "reason": snapshot.reason,
+            "block_category": snapshot.block_category,
+            "block_reason": snapshot.block_reason,
+        },
+    )
+    session.work_phase = snapshot.phase
+    session.work_phase_confidence = snapshot.confidence
+    session.work_phase_reason = snapshot.reason
+    if last_major_phase:
+        session.last_major_phase = last_major_phase
+        session.last_major_phase_confidence = last_major_confidence
+        session.last_major_phase_reason = last_major_reason
+    session.block_category = snapshot.block_category
+    session.block_reason = snapshot.block_reason
+
+
+def _refresh_health(session, idle_age: int | None, idle_threshold_seconds: int) -> None:
+    snapshot = assess_session_health(
+        status=session.status,
+        work_phase=session.work_phase,
+        block_category=session.block_category,
+        block_reason=session.block_reason,
+        repo_risk_label=session.repo_risk_label,
+        repo_risk_reason=session.repo_risk_reason,
+        test_status=session.test_status,
+        lint_status=session.lint_status,
+        attachment_state=session.attachment_state,
+        idle_age_seconds=idle_age,
+        needs_attention=session.needs_attention,
+        idle_threshold_seconds=idle_threshold_seconds,
+    )
+    if (
+        snapshot.score == session.health_score
+        and snapshot.label == session.health_label
+        and snapshot.reason == session.health_reason
+        and snapshot.evidence == session.health_evidence
+    ):
+        return
+    _record_health(session.id, snapshot.score, snapshot.label, snapshot.reason, snapshot.evidence)
+    _event(
+        session.id,
+        "health_changed",
+        f"Health -> {snapshot.label}",
+        {
+            "health_score": snapshot.score,
+            "health_label": snapshot.label,
+            "health_reason": snapshot.reason,
+            "health_evidence": snapshot.evidence,
+        },
+    )
+    session.health_score = snapshot.score
+    session.health_label = snapshot.label
+    session.health_reason = snapshot.reason
+    session.health_evidence = snapshot.evidence
+
+
+def _refresh_priority(session, idle_age: int | None, idle_threshold_seconds: int) -> None:
+    snapshot = assess_session_priority(
+        status=session.status,
+        work_phase=session.work_phase,
+        block_category=session.block_category,
+        block_reason=session.block_reason,
+        repo_risk_label=session.repo_risk_label,
+        repo_risk_reason=session.repo_risk_reason,
+        health_label=session.health_label,
+        test_status=session.test_status,
+        lint_status=session.lint_status,
+        attachment_state=session.attachment_state,
+        idle_age_seconds=idle_age,
+        needs_attention=session.needs_attention,
+        idle_threshold_seconds=idle_threshold_seconds,
+    )
+    if (
+        snapshot.score == session.priority_score
+        and snapshot.reason == session.priority_reason
+        and snapshot.evidence == session.priority_evidence
+    ):
+        return
+    _record_priority(session.id, snapshot.score, snapshot.reason, snapshot.evidence)
+    _event(
+        session.id,
+        "priority_changed",
+        f"Priority -> {snapshot.score}",
+        {
+            "priority_score": snapshot.score,
+            "priority_reason": snapshot.reason,
+            "priority_evidence": snapshot.evidence,
+        },
+    )
+    session.priority_score = snapshot.score
+    session.priority_reason = snapshot.reason
+    session.priority_evidence = snapshot.evidence
+
+def _parse_preview_list(raw_preview) -> set[str]:
+    if not raw_preview:
+        return set()
+    if isinstance(raw_preview, str):
+        try:
+            parsed = json.loads(raw_preview)
+        except json.JSONDecodeError:
+            return set()
+    else:
+        parsed = raw_preview
+    if not isinstance(parsed, list):
+        return set()
+    return {str(item) for item in parsed if item}
+
+
+def _changed_files_set(session) -> set[str]:
+    return _parse_preview_list(session.changed_files_preview)
+
+
+def _overlapping_changed_paths(session, repo_peers: list) -> list[str]:
+    session_paths = _changed_files_set(session)
+    if not session_paths:
+        return []
+    peer_paths: set[str] = set()
+    for peer in repo_peers:
+        if peer.id == session.id:
+            continue
+        peer_paths.update(_changed_files_set(peer))
+    return sorted(session_paths & peer_paths)
+
+
+def _refresh_repo_risk(session, active_repo_peers: int, overlapping_paths: list[str]) -> None:
+    snapshot = assess_repo_risk(
+        mode=session.mode,
+        status=session.status,
+        branch=session.branch,
+        worktree_path=session.worktree_path,
+        changed_files_count=session.changed_files_count,
+        allow_write=session.allow_write,
+        active_repo_peers=active_repo_peers,
+        overlapping_paths=overlapping_paths,
+    )
+    current_overlap = _parse_preview_list(session.repo_overlap_preview)
+    if (
+        snapshot.label == session.repo_risk_label
+        and snapshot.reason == session.repo_risk_reason
+        and sorted(current_overlap) == snapshot.overlap_paths
+    ):
+        return
+    _record_repo_risk(session.id, snapshot.label, snapshot.reason)
+    _record_repo_overlap(session.id, snapshot.overlap_paths)
+    _event(
+        session.id,
+        "repo_risk_changed",
+        f"Repo risk -> {snapshot.label}",
+        {
+            "repo_risk_label": snapshot.label,
+            "repo_risk_reason": snapshot.reason,
+            "repo_overlap_paths": snapshot.overlap_paths,
+        },
+    )
+    session.repo_risk_label = snapshot.label
+    session.repo_risk_reason = snapshot.reason
+    session.repo_overlap_count = len(snapshot.overlap_paths)
+    session.repo_overlap_preview = json.dumps(snapshot.overlap_paths[:10])
 
 
 def _refresh_codex_session_link(session, client: RunnerClient) -> None:
@@ -249,12 +653,27 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
     settings = load_settings()
     client = runner or get_runner_client()
     touched = 0
-    for session in list_sessions():
+    sessions = list_sessions()
+    active_repo_counts: dict[str, int] = {}
+    live_repo_sessions: dict[str, list] = {}
+    for session in sessions:
+        is_live_repo_peer = session.status in LIVE_REPO_STATUSES or session.attachment_state == "attached"
+        if is_live_repo_peer:
+            active_repo_counts[session.repo_path] = active_repo_counts.get(session.repo_path, 0) + 1
+            live_repo_sessions.setdefault(session.repo_path, []).append(session)
+    for session in sessions:
         session = refresh_git_state(session, runner=client)
+        peer_count = active_repo_counts.get(session.repo_path, 0)
+        if session.status in LIVE_REPO_STATUSES or session.attachment_state == "attached":
+            peer_count = max(0, peer_count - 1)
+        overlapping_paths = _overlapping_changed_paths(session, live_repo_sessions.get(session.repo_path, []))
+        _refresh_repo_risk(session, peer_count, overlapping_paths)
         attachment_changed = False
         _backfill_codex_history_target(session, client)
 
         if session.status in {SessionStatus.FINISHED.value, SessionStatus.FAILED.value, SessionStatus.STOPPED.value}:
+            _refresh_health(session, None, settings.monitor_idle_seconds)
+            _refresh_priority(session, None, settings.monitor_idle_seconds)
             continue
 
         tmux_ok = bool(session.tmux_session and client.session_exists(session.tmux_session))
@@ -271,8 +690,10 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
                 session.attachment_state = "detached"
                 session.last_detached_at = timestamp
             if session.status != SessionStatus.LOST.value:
-                update_status(session.id, SessionStatus.LOST, "tmux session missing")
+                session = update_status(session.id, SessionStatus.LOST, "tmux session missing")
                 touched += 1
+            _refresh_health(session, None, settings.monitor_idle_seconds)
+            _refresh_priority(session, None, settings.monitor_idle_seconds)
             continue
 
         if tmux_ok and session.tmux_session:
@@ -330,15 +751,21 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
 
         if lines:
             _refresh_validation_state(session, lines)
+        _refresh_work_phase(session, lines)
         _refresh_codex_session_link(session, client)
         if idle_age is None:
+            _refresh_health(session, None, settings.monitor_idle_seconds)
+            _refresh_priority(session, None, settings.monitor_idle_seconds)
             continue
 
         if idle_age >= settings.monitor_idle_seconds and session.status not in {SessionStatus.IDLE.value, SessionStatus.WAITING_INPUT.value}:
-            update_status(session.id, SessionStatus.IDLE, f"Idle for {idle_age}s")
+            session = update_status(session.id, SessionStatus.IDLE, f"Idle for {idle_age}s")
             touched += 1
         elif idle_age < settings.monitor_idle_seconds and session.status in {SessionStatus.CREATED.value, SessionStatus.STARTING.value, SessionStatus.IDLE.value}:
-            update_status(session.id, SessionStatus.RUNNING, "Recent output detected")
+            session = update_status(session.id, SessionStatus.RUNNING, "Recent output detected")
             touched += 1
+
+        _refresh_health(session, idle_age, settings.monitor_idle_seconds)
+        _refresh_priority(session, idle_age, settings.monitor_idle_seconds)
 
     return touched
