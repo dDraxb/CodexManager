@@ -105,6 +105,11 @@ class CodexRulesWriteRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexAgentCreateRequest(BaseModel):
+    name: str
+    summary: str = ""
+
+
 class TmuxSessionRequest(BaseModel):
     session_name: str
 
@@ -294,6 +299,19 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     ) -> dict:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.write_codex_rules(request.scope, request.content, request.repo_path))
+
+    @app.post("/list-codex-agents")
+    def list_codex_agents_endpoint(x_runner_api_key: str | None = Header(default=None)) -> dict:
+        require_auth(x_runner_api_key)
+        return {"agents": runner_call(runner.list_codex_agents)}
+
+    @app.post("/create-codex-agent")
+    def create_codex_agent_endpoint(
+        request: CodexAgentCreateRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.create_codex_agent(request.name, request.summary))
 
     @app.post("/codex/find-recent-session")
     def find_recent_codex_session(

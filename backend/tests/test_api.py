@@ -324,6 +324,30 @@ def test_api_reads_and_writes_workspace_codex_rules(configured_modules, tmp_path
     assert "Always run tests" in payload["content"]
 
 
+def test_api_lists_and_creates_codex_agents(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codex_home = tmp_path / ".codex"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    create_response = client.post(
+        "/api/codex-agents",
+        json={
+            "name": "release-captain",
+            "summary": "Release-focused helper",
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+
+    list_response = client.get("/api/codex-agents")
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload["agents"][0]["name"] == "release-captain"
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

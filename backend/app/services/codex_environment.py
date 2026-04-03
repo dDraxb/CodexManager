@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 def codex_home_path() -> Path:
     raw = os.environ.get("CODEX_HOME")
     if raw:
@@ -30,6 +29,8 @@ def _skill_entries(root: Path) -> list[dict]:
 
 
 def inspect_codex_environment(repo_path: str | None = None) -> dict:
+    from app.services.codex_agents import list_codex_agents
+
     codex_home = codex_home_path()
     global_config = codex_home / "config.toml"
     global_skills_root = codex_home / "skills"
@@ -48,4 +49,5 @@ def inspect_codex_environment(repo_path: str | None = None) -> dict:
         },
         "globalSkills": _skill_entries(global_skills_root),
         "workspaceSkills": _skill_entries(workspace_skills_root) if workspace_skills_root else [],
+        "globalAgents": list_codex_agents(),
     }

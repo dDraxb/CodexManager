@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.codex_agents import CodexAgentError, create_codex_agent, list_codex_agents
 from app.services.codex_config import CodexConfigError, read_codex_config, write_codex_config
 from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
@@ -165,6 +166,15 @@ class LocalRunnerClient(RunnerClient):
         try:
             return write_codex_rules(scope=scope, content=content, repo_path=repo_path)
         except CodexRulesError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def list_codex_agents(self) -> list[dict]:
+        return list_codex_agents()
+
+    def create_codex_agent(self, name: str, summary: str = "") -> dict:
+        try:
+            return create_codex_agent(name=name, summary=summary)
+        except CodexAgentError as exc:
             raise RunnerError(str(exc)) from exc
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
@@ -334,6 +344,13 @@ class RemoteRunnerClient(RunnerClient):
             "/write-codex-rules",
             {"scope": scope, "content": content, "repo_path": repo_path},
         )
+
+    def list_codex_agents(self) -> list[dict]:
+        payload = self._post("/list-codex-agents", {})
+        return [dict(item) for item in payload["agents"]]
+
+    def create_codex_agent(self, name: str, summary: str = "") -> dict:
+        return self._post("/create-codex-agent", {"name": name, "summary": summary})
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         payload = self._post(

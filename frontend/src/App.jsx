@@ -38,6 +38,11 @@ const EMPTY_RULES_EDITOR = {
   workspace: null
 }
 
+const EMPTY_AGENT_FORM = {
+  name: '',
+  summary: ''
+}
+
 const COMMAND_TABS = [
   { id: 'create', label: 'New session' },
   { id: 'adopt', label: 'Adopt session' },
@@ -687,6 +692,8 @@ export default function App() {
   const [activeConfigScope, setActiveConfigScope] = useState('global')
   const [codexRules, setCodexRules] = useState(EMPTY_RULES_EDITOR)
   const [activeRulesScope, setActiveRulesScope] = useState('workspace')
+  const [codexAgents, setCodexAgents] = useState([])
+  const [agentForm, setAgentForm] = useState(EMPTY_AGENT_FORM)
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [sessionQuery, setSessionQuery] = useState('')
@@ -1336,6 +1343,37 @@ export default function App() {
     await loadCodexRules(scope)
   }
 
+  async function loadCodexAgents() {
+    const payload = await runRequest(() => fetchJson('/api/codex-agents'), null)
+    if (!payload) return
+    setCodexAgents(payload.agents || [])
+  }
+
+  async function createCodexAgent(event) {
+    event.preventDefault()
+    const payload = {
+      name: agentForm.name.trim(),
+      summary: agentForm.summary.trim()
+    }
+    if (!payload.name) {
+      notify('error', 'Agent name is required')
+      return
+    }
+    const result = await runRequest(
+      () =>
+        fetchJson('/api/codex-agents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }),
+      (created) => `Created Codex agent ${created.name}`
+    )
+    if (!result) return
+    setAgentForm(EMPTY_AGENT_FORM)
+    await loadCodexAgents()
+    await loadCodexConfig('global')
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -1418,6 +1456,7 @@ export default function App() {
     } else {
       setCodexRules((current) => ({ ...current, workspace: null }))
     }
+    loadCodexAgents()
   }, [commandTab, detail?.repo_path, selectedSession?.repo_path, showCommandPanel])
 
   return (
@@ -1845,6 +1884,32 @@ export default function App() {
                 ) : (
                   <p className="muted">Load a global or workspace rules file to edit it here.</p>
                 )}
+              </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Configured Agents</p>
+                    <p className="muted">Inspect and scaffold named Codex agents registered in global config.</p>
+                  </div>
+                  <span className="badge badge-stopped">{codexAgents.length} configured</span>
+                </div>
+                <div className="history-list">
+                  {codexAgents.length ? codexAgents.map((agent) => (
+                    <div key={agent.name} className="history-item">
+                      <div className="row between">
+                        <strong>{agent.name}</strong>
+                        <span className="badge badge-stopped">{agent.configFile || 'no config file'}</span>
+                      </div>
+                    </div>
+                  )) : <p className="muted">No configured agents yet.</p>}
+                </div>
+                <form className="stack-form" onSubmit={createCodexAgent}>
+                  <div className="command-form-grid">
+                    <input placeholder="Agent name (e.g. release-captain)" value={agentForm.name} onChange={(event) => setAgentForm((prev) => ({ ...prev, name: event.target.value }))} />
+                    <input placeholder="Short role summary" value={agentForm.summary} onChange={(event) => setAgentForm((prev) => ({ ...prev, summary: event.target.value }))} />
+                  </div>
+                  <button type="submit" className="primary">Create agent scaffold</button>
+                </form>
               </div>
             </div>
           ) : null}

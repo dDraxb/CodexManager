@@ -56,6 +56,12 @@ class RunnerClient(Protocol):
     def write_codex_rules(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         """Write global or workspace Codex instruction rules."""
 
+    def list_codex_agents(self) -> list[dict]:
+        """List configured Codex agents from the execution environment."""
+
+    def create_codex_agent(self, name: str, summary: str = "") -> dict:
+        """Create a Codex agent scaffold and register it in global config."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

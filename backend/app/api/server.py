@@ -96,6 +96,11 @@ class CodexRulesWriteRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexAgentCreateRequest(BaseModel):
+    name: str
+    summary: str = ""
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -223,6 +228,24 @@ def save_codex_rules(request: CodexRulesWriteRequest) -> dict:
     client = get_runner_client()
     try:
         return client.write_codex_rules(request.scope, request.content, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/codex-agents")
+def codex_agents() -> dict:
+    client = get_runner_client()
+    try:
+        return {"agents": client.list_codex_agents()}
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-agents")
+def create_codex_agent_api(request: CodexAgentCreateRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.create_codex_agent(request.name, request.summary)
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
