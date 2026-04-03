@@ -1127,6 +1127,29 @@ export default function App() {
     await refreshAfterMutation(selectedSession?.id || null)
   }
 
+  async function materializeValidationRecipeForSelected() {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const recipeJson = detail?.validation_recipe_json || selectedSession?.validation_recipe_json || ''
+    if (!repoPath || !recipeJson) {
+      notify('error', 'Select a session with a working directory and detected validation recipe first')
+      return
+    }
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/validation-recipes/materialize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoPath,
+            recipeJson
+          })
+        }),
+      (result) => `Saved local validation recipe at ${result.configPath}`
+    )
+    if (!payload) return
+    await refreshAfterMutation(selectedSession?.id || null)
+  }
+
   const activeCount = sessions.filter((session) => !isArchivedSession(session)).length
   const archivedCount = sessions.filter((session) => isArchivedSession(session)).length
   const validationRecipe = parseValidationRecipe(detail?.validation_recipe_json || selectedSession?.validation_recipe_json)
@@ -1670,6 +1693,29 @@ export default function App() {
                       >
                         Apply preset reference
                       </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={materializeValidationRecipeForSelected}
+                        disabled={!selectedSession?.repo_path}
+                      >
+                        Save local recipe
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {Array.isArray(validationRecipe.checks) && validationRecipe.checks.length ? (
+                  <div className="activity-subsection">
+                    <div className="row">
+                      <p className="activity-label">Local recipe</p>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={materializeValidationRecipeForSelected}
+                        disabled={!selectedSession?.repo_path}
+                      >
+                        Save local recipe
+                      </button>
                     </div>
                   </div>
                 ) : null}
@@ -1711,6 +1757,14 @@ export default function App() {
                         disabled={!selectedSession?.repo_path || !selectedValidationPreset}
                       >
                         Apply preset reference
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={materializeValidationRecipeForSelected}
+                        disabled={!selectedSession?.repo_path}
+                      >
+                        Save local recipe
                       </button>
                     </div>
                   </div>

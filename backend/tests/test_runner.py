@@ -89,6 +89,10 @@ class RecordingRunner:
         self.calls.append(("apply_validation_preset", repo_path, preset_id))
         return f"{repo_path}/.codexmgr.validation.json"
 
+    def materialize_validation_recipe(self, repo_path: str, recipe_json: str) -> str:
+        self.calls.append(("materialize_validation_recipe", repo_path, recipe_json))
+        return f"{repo_path}/.codexmgr.validation.json"
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         self.calls.append(("find_recent_codex_session", cwd, prompt, since))
         return None
@@ -231,6 +235,36 @@ def test_local_runner_can_apply_validation_preset(configured_modules, tmp_path):
 
     assert config_path == str(repo / ".codexmgr.validation.json")
     assert json.loads((repo / ".codexmgr.validation.json").read_text(encoding="utf-8")) == {"preset": "strict-node"}
+
+
+def test_local_runner_can_materialize_validation_recipe(configured_modules, tmp_path):
+    from app.runner.client import LocalRunnerClient
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    runner = LocalRunnerClient()
+    config_path = runner.materialize_validation_recipe(
+        str(repo),
+        json.dumps(
+            {
+                "label": "Repo policy",
+                "checks": [
+                    {"kind": "tests", "label": "Smoke", "command": "./bin/smoke_test.sh"},
+                    {"kind": "build", "label": "Build", "command": "npm run build", "required": False},
+                ],
+            }
+        ),
+    )
+
+    assert config_path == str(repo / ".codexmgr.validation.json")
+    assert json.loads((repo / ".codexmgr.validation.json").read_text(encoding="utf-8")) == {
+        "label": "Repo policy",
+        "checks": [
+            {"kind": "tests", "label": "Smoke", "command": "./bin/smoke_test.sh", "required": True},
+            {"kind": "build", "label": "Build", "command": "npm run build", "required": False},
+        ],
+    }
 
 
 def test_create_managed_session_accepts_runner_owned_repo_paths(configured_modules):

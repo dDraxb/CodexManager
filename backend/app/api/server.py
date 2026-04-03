@@ -70,6 +70,11 @@ class ValidationPresetApplyRequest(BaseModel):
     preset_id: str = Field(alias="presetId")
 
 
+class ValidationRecipeMaterializeRequest(BaseModel):
+    repo_path: str = Field(alias="repoPath")
+    recipe_json: str = Field(alias="recipeJson")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -141,6 +146,13 @@ def validation_presets() -> dict:
 def apply_validation_preset(request: ValidationPresetApplyRequest) -> dict:
     client = get_runner_client()
     config_path = client.apply_validation_preset(request.repo_path, request.preset_id)
+    return {"configPath": config_path}
+
+
+@app.post("/api/validation-recipes/materialize")
+def materialize_validation_recipe(request: ValidationRecipeMaterializeRequest) -> dict:
+    client = get_runner_client()
+    config_path = client.materialize_validation_recipe(request.repo_path, request.recipe_json)
     return {"configPath": config_path}
 
 

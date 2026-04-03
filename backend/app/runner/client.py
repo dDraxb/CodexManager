@@ -17,7 +17,11 @@ from app.services.tmux import is_session_attached as tmux_is_session_attached
 from app.services.tmux import pane_pid as tmux_pane_pid
 from app.services.tmux import session_exists as tmux_session_exists
 from app.services.tmux import stop_session as tmux_stop_session
-from app.services.validation_recipe import detect_validation_recipe, serialize_validation_recipe
+from app.services.validation_recipe import (
+    detect_validation_recipe,
+    materialize_validation_recipe_payload,
+    serialize_validation_recipe,
+)
 from app.services.worktree import changed_files, create_worktree, current_branch, ensure_git_repo
 
 
@@ -112,6 +116,18 @@ class LocalRunnerClient(RunnerClient):
             json.dumps({"preset": preset_id}, indent=2) + "\n",
             encoding="utf-8",
         )
+        return str(config_path)
+
+    def materialize_validation_recipe(self, repo_path: str, recipe_json: str) -> str:
+        root = Path(repo_path)
+        if not root.exists() or not root.is_dir():
+            raise RunnerError(f"working directory is not accessible: {repo_path}")
+        try:
+            payload = materialize_validation_recipe_payload(recipe_json)
+        except ValueError as exc:
+            raise RunnerError(str(exc)) from exc
+        config_path = root / ".codexmgr.validation.json"
+        config_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return str(config_path)
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
@@ -240,6 +256,13 @@ class RemoteRunnerClient(RunnerClient):
         payload = self._post(
             "/apply-validation-preset",
             {"repo_path": repo_path, "preset_id": preset_id},
+        )
+        return str(payload["config_path"])
+
+    def materialize_validation_recipe(self, repo_path: str, recipe_json: str) -> str:
+        payload = self._post(
+            "/materialize-validation-recipe",
+            {"repo_path": repo_path, "recipe_json": recipe_json},
         )
         return str(payload["config_path"])
 

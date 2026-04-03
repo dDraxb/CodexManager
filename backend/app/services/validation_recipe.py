@@ -329,3 +329,14 @@ def serialize_validation_recipe(recipe: ValidationRecipe | None) -> tuple[str | 
             "checks": [asdict(check) for check in recipe.checks],
         }
     )
+
+
+def materialize_validation_recipe_payload(raw_recipe_json: str | None) -> dict:
+    payload = _load_recipe_payload(raw_recipe_json)
+    recipe = _normalize_custom_recipe(payload, "materialized")
+    if recipe is None:
+        raise ValueError("validation recipe is not available to materialize")
+    return {
+        "label": recipe.label,
+        "checks": [asdict(check) for check in recipe.checks],
+    }

@@ -277,3 +277,27 @@ def test_validation_policy_state_distinguishes_required_and_optional_checks():
     assert reason == "all required validation checks have been observed"
     assert missing == []
     assert optional == []
+
+
+def test_materialize_validation_recipe_payload_keeps_effective_checks():
+    from app.services.validation_recipe import materialize_validation_recipe_payload
+
+    payload = json.dumps(
+        {
+            "label": "Repo policy",
+            "checks": [
+                {"kind": "tests", "label": "Smoke", "command": "./bin/smoke_test.sh"},
+                {"kind": "lint", "label": "Lint", "command": "npm run lint", "required": False},
+            ],
+        }
+    )
+
+    result = materialize_validation_recipe_payload(payload)
+
+    assert result == {
+        "label": "Repo policy",
+        "checks": [
+            {"kind": "tests", "label": "Smoke", "command": "./bin/smoke_test.sh", "required": True},
+            {"kind": "lint", "label": "Lint", "command": "npm run lint", "required": False},
+        ],
+    }

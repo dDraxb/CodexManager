@@ -222,6 +222,42 @@ def test_api_applies_validation_preset(configured_modules, tmp_path, monkeypatch
     assert json.loads((project / ".codexmgr.validation.json").read_text(encoding="utf-8")) == {"preset": "strict-node"}
 
 
+def test_api_materializes_validation_recipe(configured_modules, tmp_path):
+    from app.api import server
+
+    project = tmp_path / "recipe-target"
+    project.mkdir()
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/validation-recipes/materialize",
+        json={
+            "repoPath": str(project),
+            "recipeJson": json.dumps(
+                {
+                    "label": "Repo policy",
+                    "checks": [
+                        {"kind": "tests", "label": "Smoke", "command": "./bin/smoke_test.sh"},
+                        {"kind": "lint", "label": "Lint", "command": "npm run lint", "required": False},
+                    ],
+                }
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["configPath"].endswith(".codexmgr.validation.json")
+    assert json.loads((project / ".codexmgr.validation.json").read_text(encoding="utf-8")) == {
+        "label": "Repo policy",
+        "checks": [
+            {"kind": "tests", "label": "Smoke", "command": "./bin/smoke_test.sh", "required": True},
+            {"kind": "lint", "label": "Lint", "command": "npm run lint", "required": False},
+        ],
+    }
+
+
 def test_api_delete_session(configured_modules, git_repo):
     from app.api import server
 
