@@ -17,6 +17,7 @@ from app.services.tmux import is_session_attached as tmux_is_session_attached
 from app.services.tmux import pane_pid as tmux_pane_pid
 from app.services.tmux import session_exists as tmux_session_exists
 from app.services.tmux import stop_session as tmux_stop_session
+from app.services.validation_recipe import detect_validation_recipe, serialize_validation_recipe
 from app.services.worktree import changed_files, create_worktree, current_branch, ensure_git_repo
 
 
@@ -92,8 +93,15 @@ class LocalRunnerClient(RunnerClient):
                         "",
                     ]
                 )
-            )
+        )
         return str(changelog_path)
+
+    def detect_validation_recipe(self, repo_path: str) -> dict | None:
+        recipe = detect_validation_recipe(repo_path)
+        if recipe is None:
+            return None
+        recipe_id, recipe_json = serialize_validation_recipe(recipe)
+        return {"recipe_id": recipe_id, "recipe_json": recipe_json}
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         return find_recent_codex_session_id(cwd, prompt, since)
@@ -211,6 +219,11 @@ class RemoteRunnerClient(RunnerClient):
             },
         )
         return str(payload["changelog_path"])
+
+    def detect_validation_recipe(self, repo_path: str) -> dict | None:
+        payload = self._post("/detect-validation-recipe", {"repo_path": repo_path})
+        recipe = payload.get("recipe")
+        return dict(recipe) if recipe is not None else None
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         payload = self._post(

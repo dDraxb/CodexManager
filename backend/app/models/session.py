@@ -124,12 +124,17 @@ class SessionRecord:
     repo_risk_reason: str
     repo_overlap_count: int
     repo_overlap_preview: str
+    validation_recipe_id: str | None
+    validation_recipe_json: str
     test_activity: str | None
     test_status: str | None
     test_status_at: str | None
     lint_activity: str | None
     lint_status: str | None
     lint_status_at: str | None
+    build_activity: str | None
+    build_status: str | None
+    build_status_at: str | None
     exit_code: int | None
     log_path: str
     cwd: str | None

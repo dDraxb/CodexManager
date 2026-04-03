@@ -22,6 +22,7 @@ from app.services.sessions import (
     get_session,
     list_events,
     list_sessions,
+    list_validation_history,
     open_session,
     resume_session,
     set_codex_session_id,
@@ -111,6 +112,12 @@ def session_logs(session_id: str, tail: int = 200) -> dict:
 def session_events(session_id: str, limit: int = 100) -> list[dict]:
     _session_or_404(session_id)
     return [asdict(e) for e in list_events(session_id, limit)]
+
+
+@app.get("/api/sessions/{session_id}/validation-history")
+def session_validation_history(session_id: str, limit: int = 30) -> list[dict]:
+    _session_or_404(session_id)
+    return [asdict(entry) for entry in list_validation_history(session_id, limit)]
 
 
 @app.get("/api/codex/history")

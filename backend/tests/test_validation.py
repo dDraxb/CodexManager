@@ -15,6 +15,8 @@ def test_analyze_validation_detects_pytest_success():
     assert snapshot.test_status == STATUS_PASSED
     assert snapshot.lint_activity == ACTIVITY_NONE
     assert snapshot.lint_status == STATUS_UNKNOWN
+    assert snapshot.build_activity == ACTIVITY_NONE
+    assert snapshot.build_status == STATUS_UNKNOWN
 
 
 def test_analyze_validation_detects_lint_failure():
@@ -32,6 +34,7 @@ def test_analyze_validation_detects_lint_failure():
     assert snapshot.test_status == STATUS_UNKNOWN
     assert snapshot.lint_activity == ACTIVITY_NONE
     assert snapshot.lint_status == STATUS_FAILED
+    assert snapshot.build_status == STATUS_UNKNOWN
 
 
 def test_analyze_validation_detects_smoke_script_success():
@@ -50,6 +53,7 @@ def test_analyze_validation_detects_smoke_script_success():
     assert snapshot.test_status == STATUS_PASSED
     assert snapshot.lint_activity == ACTIVITY_NONE
     assert snapshot.lint_status == STATUS_UNKNOWN
+    assert snapshot.build_status == STATUS_UNKNOWN
 
 
 def test_analyze_validation_marks_running_activity_without_result():
@@ -110,3 +114,18 @@ def test_analyze_validation_does_not_treat_failure_prose_as_test_failure():
 
     assert snapshot.test_activity == ACTIVITY_NONE
     assert snapshot.test_status == STATUS_UNKNOWN
+
+
+def test_analyze_validation_detects_build_success():
+    from app.services.validation import ACTIVITY_NONE, STATUS_PASSED, analyze_validation
+
+    snapshot = analyze_validation(
+        [
+            "$ npm run build",
+            "vite v7.3.1 building client environment for production...",
+            "✓ built in 978ms",
+        ]
+    )
+
+    assert snapshot.build_activity == ACTIVITY_NONE
+    assert snapshot.build_status == STATUS_PASSED

@@ -86,27 +86,45 @@ function validationBadgeClass(status) {
 }
 
 function validationLabel(kind, status) {
+  const labels = {
+    tests: ['No recent test activity', 'Test activity active', 'Tests'],
+    lint: ['No recent lint activity', 'Lint activity active', 'Lint'],
+    build: ['No recent build activity', 'Build activity active', 'Build']
+  }
+  const [noneLabel, activeLabel, noun] = labels[kind] || labels.tests
   if (status === 'unknown') {
-    return kind === 'tests' ? 'No recent test activity' : 'No recent lint activity'
+    return noneLabel
   }
   if (status === 'running') {
-    return kind === 'tests' ? 'Test activity active' : 'Lint activity active'
+    return activeLabel
   }
-  return `${kind === 'tests' ? 'Tests' : 'Lint'} ${status}`
+  return `${noun} ${status}`
 }
 
 function validationActivityLabel(kind, activity) {
-  if (activity === 'active') {
-    return kind === 'tests' ? 'Test activity active now' : 'Lint activity active now'
+  const labels = {
+    tests: ['Test activity active now', 'No recent test activity'],
+    lint: ['Lint activity active now', 'No recent lint activity'],
+    build: ['Build activity active now', 'No recent build activity']
   }
-  return kind === 'tests' ? 'No recent test activity' : 'No recent lint activity'
+  const [activeLabel, idleLabel] = labels[kind] || labels.tests
+  if (activity === 'active') {
+    return activeLabel
+  }
+  return idleLabel
 }
 
 function validationResultLabel(kind, status) {
-  if (status === 'unknown') {
-    return kind === 'tests' ? 'No recent test result' : 'No recent lint result'
+  const labels = {
+    tests: ['No recent test result', 'Latest test result'],
+    lint: ['No recent lint result', 'Latest lint result'],
+    build: ['No recent build result', 'Latest build result']
   }
-  return `${kind === 'tests' ? 'Latest test result' : 'Latest lint result'}: ${status}`
+  const [noneLabel, resultLabel] = labels[kind] || labels.tests
+  if (status === 'unknown') {
+    return noneLabel
+  }
+  return `${resultLabel}: ${status}`
 }
 
 function formatValidationTimestamp(timestamp) {
@@ -117,13 +135,31 @@ function formatValidationTimestamp(timestamp) {
 }
 
 function validationResultDetail(kind, status, timestamp) {
+  const labels = {
+    tests: ['No known test result yet', 'Latest test result'],
+    lint: ['No known lint result yet', 'Latest lint result'],
+    build: ['No known build result yet', 'Latest build result']
+  }
+  const [noneLabel, resultLabel] = labels[kind] || labels.tests
   if (status === 'unknown') {
-    return kind === 'tests' ? 'No known test result yet' : 'No known lint result yet'
+    return noneLabel
   }
   const formatted = formatValidationTimestamp(timestamp)
   return formatted
-    ? `${kind === 'tests' ? 'Latest test result' : 'Latest lint result'}: ${status} at ${formatted}`
+    ? `${resultLabel}: ${status} at ${formatted}`
     : validationResultLabel(kind, status)
+}
+
+function validationHistoryEntryLabel(entry) {
+  if (!entry) return 'Unknown validation update'
+  const noun = entry.kind === 'lint' ? 'Lint' : entry.kind === 'build' ? 'Build' : 'Tests'
+  if (entry.source === 'activity_change') {
+    return entry.activity === 'active' ? `${noun} activity started` : `${noun} activity became idle`
+  }
+  if (entry.status && entry.status !== 'unknown') {
+    return `${noun} ${entry.status}`
+  }
+  return `${noun} updated`
 }
 
 function blockCategoryLabel(category) {
@@ -208,6 +244,16 @@ function formatEventTime(timestamp) {
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return timestamp
   return date.toLocaleString()
+}
+
+function parseValidationRecipe(rawRecipe) {
+  if (!rawRecipe) return null
+  try {
+    const parsed = JSON.parse(rawRecipe)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch (_err) {
+    return null
+  }
 }
 
 function stateTimelineEntry(event) {
@@ -429,6 +475,7 @@ export default function App() {
   const [detail, setDetail] = useState(null)
   const [events, setEvents] = useState([])
   const [logs, setLogs] = useState([])
+  const [validationHistory, setValidationHistory] = useState([])
   const [refresh, setRefresh] = useState(10)
   const [error, setError] = useState('')
   const [toast, setToast] = useState(null)
@@ -588,6 +635,7 @@ export default function App() {
       loadedDetailSessionRef.current = null
       setDetail(null)
       setEvents([])
+      setValidationHistory([])
       setLogs([])
       return
     }
@@ -595,13 +643,15 @@ export default function App() {
       startTransition(() => {
         setDetail(null)
         setEvents([])
+        setValidationHistory([])
         setLogs([])
       })
     }
     try {
-      const [nextDetail, nextEvents, nextLogs] = await Promise.all([
+      const [nextDetail, nextEvents, nextValidationHistory, nextLogs] = await Promise.all([
         fetchJson(`/api/sessions/${id}`),
         fetchJson(`/api/sessions/${id}/events?limit=25`),
+        fetchJson(`/api/sessions/${id}/validation-history?limit=8`),
         fetchJson(`/api/sessions/${id}/logs?tail=120`)
       ])
       if (detailRequestRef.current !== requestId) {
@@ -611,6 +661,7 @@ export default function App() {
       startTransition(() => {
         setDetail(nextDetail)
         setEvents(nextEvents)
+        setValidationHistory(nextValidationHistory)
         setLogs(trimTrailingBlankLines((nextLogs.lines || []).map(sanitizeLogLine)))
       })
     } catch (err) {
@@ -733,6 +784,7 @@ export default function App() {
     }
     setDetail(null)
     setEvents([])
+    setValidationHistory([])
     setLogs([])
   }
 
@@ -924,6 +976,7 @@ export default function App() {
 
   const activeCount = sessions.filter((session) => !isArchivedSession(session)).length
   const archivedCount = sessions.filter((session) => isArchivedSession(session)).length
+  const validationRecipe = parseValidationRecipe(detail?.validation_recipe_json || selectedSession?.validation_recipe_json)
 
   return (
     <div className="shell">
@@ -1437,10 +1490,41 @@ export default function App() {
           {detail?.block_reason ? <p className="muted">Block reason: {detail.block_reason}</p> : null}
           <div className="activity-section">
             <p className="activity-label">Validation</p>
+            {validationRecipe?.label ? (
+              <p className="muted">
+                Validation recipe: {validationRecipe.label}
+                {Array.isArray(validationRecipe.checks) && validationRecipe.checks.length
+                  ? ` · ${validationRecipe.checks.map((check) => check.command).join(' · ')}`
+                  : ''}
+              </p>
+            ) : (
+              <p className="muted">Validation recipe: not detected yet</p>
+            )}
             <p className="muted">{validationActivityLabel('tests', detail?.test_activity || 'none')}</p>
             <p className="muted">{validationResultDetail('tests', detail?.test_status || 'unknown', detail?.test_status_at)}</p>
             <p className="muted">{validationActivityLabel('lint', detail?.lint_activity || 'none')}</p>
             <p className="muted">{validationResultDetail('lint', detail?.lint_status || 'unknown', detail?.lint_status_at)}</p>
+               <p className="muted">{validationActivityLabel('build', detail?.build_activity || 'none')}</p>
+            <p className="muted">{validationResultDetail('build', detail?.build_status || 'unknown', detail?.build_status_at)}</p>
+            <div className="activity-subsection">
+              <p className="activity-label">Recent validation runs</p>
+              {!validationHistory.length ? <p className="muted">No structured validation history recorded yet.</p> : null}
+              {validationHistory.slice(0, 5).map((entry) => (
+                <div key={entry.id} className="phase-timeline-item validation-history-item">
+                  <div className="phase-timeline-text">
+                    <div className="phase-timeline-main">
+                      <strong>{validationHistoryEntryLabel(entry)}</strong>
+                      <span className="muted">
+                        {entry.kind}
+                        {entry.activity ? ` · activity ${entry.activity}` : ''}
+                        {entry.status ? ` · status ${entry.status}` : ''}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="muted">{formatEventTime(entry.timestamp)}</span>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="activity-section">
             <p className="activity-label">Recent state changes</p>

@@ -79,6 +79,10 @@ class RecordingRunner:
         self.calls.append(("ensure_changelog_entry", repo_path, session_name, prompt, timestamp))
         return f"{repo_path}/CHANGELOG.md"
 
+    def detect_validation_recipe(self, repo_path: str) -> dict | None:
+        self.calls.append(("detect_validation_recipe", repo_path))
+        return None
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         self.calls.append(("find_recent_codex_session", cwd, prompt, since))
         return None
@@ -492,7 +496,7 @@ def test_reconcile_once_updates_attachment_state(configured_modules, git_repo):
 
 def test_reconcile_once_updates_validation_status_and_attention(configured_modules, git_repo):
     from app.monitoring.reconciler import reconcile_once
-    from app.services.sessions import create_managed_session, get_session, list_events
+    from app.services.sessions import create_managed_session, get_session, list_events, list_validation_history
 
     class ValidationRunner(RecordingRunner):
         def capture_pane(self, session_name: str, tail: int = 200) -> list[str]:
@@ -538,6 +542,9 @@ def test_reconcile_once_updates_validation_status_and_attention(configured_modul
     assert "Tests passed" in validation_events
     assert "Lint failed" in validation_events
     assert any(event.type == "work_phase_changed" and event.message == "Phase -> testing" for event in events)
+    history = list_validation_history(session.id, limit=10)
+    assert any(entry.kind == "tests" and entry.status == "passed" for entry in history)
+    assert any(entry.kind == "lint" and entry.status == "failed" for entry in history)
 
 
 def test_reconcile_once_backfills_validation_result_from_full_log(configured_modules, git_repo):

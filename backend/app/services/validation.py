@@ -68,6 +68,28 @@ LINT_FAIL_PATTERNS = (
     re.compile(r"\[ERROR\]", re.IGNORECASE),
 )
 
+BUILD_COMMAND_PATTERNS = (
+    re.compile(r"\b(?:npm|pnpm|yarn)\s+(?:run\s+)?build\b"),
+    re.compile(r"\bcargo build\b"),
+    re.compile(r"\bgo build\b"),
+    re.compile(r"\bpython\s+-m\s+build\b"),
+    re.compile(r"\bdotnet build\b"),
+)
+
+BUILD_PASS_PATTERNS = (
+    re.compile(r"\bBuild completed successfully\b", re.IGNORECASE),
+    re.compile(r"\bbuild succeeded\b", re.IGNORECASE),
+    re.compile(r"\bcompiled successfully\b", re.IGNORECASE),
+    re.compile(r"✓\s+built in", re.IGNORECASE),
+)
+
+BUILD_FAIL_PATTERNS = (
+    re.compile(r"\bbuild failed\b", re.IGNORECASE),
+    re.compile(r"\bcompilation failed\b", re.IGNORECASE),
+    re.compile(r"\berror during build\b", re.IGNORECASE),
+    re.compile(r"\bfailed to compile\b", re.IGNORECASE),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationSnapshot:
@@ -75,6 +97,8 @@ class ValidationSnapshot:
     test_status: str
     lint_activity: str
     lint_status: str
+    build_activity: str
+    build_status: str
 
 
 def _latest_activity_and_result(lines: list[str], command_patterns, pass_patterns, fail_patterns) -> tuple[str, str]:
@@ -100,9 +124,12 @@ def _latest_activity_and_result(lines: list[str], command_patterns, pass_pattern
 def analyze_validation(lines: list[str]) -> ValidationSnapshot:
     test_activity, test_status = _latest_activity_and_result(lines, TEST_COMMAND_PATTERNS, TEST_PASS_PATTERNS, TEST_FAIL_PATTERNS)
     lint_activity, lint_status = _latest_activity_and_result(lines, LINT_COMMAND_PATTERNS, LINT_PASS_PATTERNS, LINT_FAIL_PATTERNS)
+    build_activity, build_status = _latest_activity_and_result(lines, BUILD_COMMAND_PATTERNS, BUILD_PASS_PATTERNS, BUILD_FAIL_PATTERNS)
     return ValidationSnapshot(
         test_activity=test_activity,
         test_status=test_status,
         lint_activity=lint_activity,
         lint_status=lint_status,
+        build_activity=build_activity,
+        build_status=build_status,
     )

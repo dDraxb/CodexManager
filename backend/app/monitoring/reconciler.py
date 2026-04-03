@@ -10,7 +10,13 @@ from app.db.database import get_conn
 from app.models.session import SessionStatus
 from app.runner.client import get_runner_client
 from app.runner.contracts import RunnerClient, RunnerError
-from app.services.sessions import _event, list_sessions, refresh_git_state, update_status
+from app.services.sessions import (
+    _event,
+    list_sessions,
+    record_validation_history,
+    refresh_git_state,
+    update_status,
+)
 from app.services.health import assess_session_health
 from app.services.priority import assess_session_priority
 from app.services.repo_risk import assess_repo_risk
@@ -105,13 +111,16 @@ def _record_validation_state(
     lint_activity: str,
     lint_status: str,
     lint_status_at: str | None,
+    build_activity: str,
+    build_status: str,
+    build_status_at: str | None,
     needs_attention: bool,
 ) -> None:
     with get_conn() as conn:
         conn.execute(
             """
             UPDATE sessions
-            SET test_activity = ?, test_status = ?, test_status_at = ?, lint_activity = ?, lint_status = ?, lint_status_at = ?, needs_attention = ?,
+            SET test_activity = ?, test_status = ?, test_status_at = ?, lint_activity = ?, lint_status = ?, lint_status_at = ?, build_activity = ?, build_status = ?, build_status_at = ?, needs_attention = ?,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -122,11 +131,35 @@ def _record_validation_state(
                 lint_activity,
                 lint_status,
                 lint_status_at,
+                build_activity,
+                build_status,
+                build_status_at,
                 1 if needs_attention else 0,
                 datetime.now(UTC).replace(microsecond=0).isoformat(),
                 session_id,
             ),
         )
+
+
+def _record_validation_transition(
+    session_id: str,
+    *,
+    kind: str,
+    timestamp: str,
+    activity: str | None,
+    status: str | None,
+    source: str,
+    details: dict | None = None,
+) -> None:
+    record_validation_history(
+        session_id,
+        kind=kind,
+        timestamp=timestamp,
+        activity=activity,
+        status=status,
+        source=source,
+        details=details,
+    )
 
 
 MAJOR_PHASES = {"planning", "reading", "editing", "testing", "blocked", "waiting_input", "reviewing", "completed"}
@@ -227,10 +260,10 @@ def _record_codex_history_target(
         )
 
 
-def _session_needs_attention(session_status: str, *, test_status: str, lint_status: str) -> bool:
+def _session_needs_attention(session_status: str, *, test_status: str, lint_status: str, build_status: str) -> bool:
     if session_status in {SessionStatus.FAILED.value, SessionStatus.LOST.value, SessionStatus.WAITING_INPUT.value}:
         return True
-    return test_status == STATUS_FAILED or lint_status == STATUS_FAILED
+    return test_status == STATUS_FAILED or lint_status == STATUS_FAILED or build_status == STATUS_FAILED
 
 
 def _log_timestamp(path: Path) -> str | None:
@@ -242,23 +275,47 @@ def _log_timestamp(path: Path) -> str | None:
         return None
 
 
-def _backfill_validation_from_log(session) -> tuple[str, str, str | None, str, str, str | None]:
+def _backfill_validation_from_log(session) -> tuple[str, str, str | None, str, str, str | None, str, str, str | None]:
     test_activity = session.test_activity or "none"
     test_status = session.test_status or "unknown"
     test_status_at = session.test_status_at
     lint_activity = session.lint_activity or "none"
     lint_status = session.lint_status or "unknown"
     lint_status_at = session.lint_status_at
+    build_activity = session.build_activity or "none"
+    build_status = session.build_status or "unknown"
+    build_status_at = session.build_status_at
     needs_backfill = (
         (test_status == "unknown" and test_status_at is None)
         or (lint_status == "unknown" and lint_status_at is None)
+        or (build_status == "unknown" and build_status_at is None)
     )
     if not needs_backfill:
-        return test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at
+        return (
+            test_activity,
+            test_status,
+            test_status_at,
+            lint_activity,
+            lint_status,
+            lint_status_at,
+            build_activity,
+            build_status,
+            build_status_at,
+        )
 
     log_path = Path(session.log_path)
     if not log_path.exists():
-        return test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at
+        return (
+            test_activity,
+            test_status,
+            test_status_at,
+            lint_activity,
+            lint_status,
+            lint_status_at,
+            build_activity,
+            build_status,
+            build_status_at,
+        )
 
     snapshot = analyze_validation(log_path.read_text(encoding="utf-8", errors="replace").splitlines())
     timestamp = _log_timestamp(log_path)
@@ -268,7 +325,20 @@ def _backfill_validation_from_log(session) -> tuple[str, str, str | None, str, s
     if lint_status == "unknown" and snapshot.lint_status != "unknown":
         lint_status = snapshot.lint_status
         lint_status_at = timestamp
-    return test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at
+    if build_status == "unknown" and snapshot.build_status != "unknown":
+        build_status = snapshot.build_status
+        build_status_at = timestamp
+    return (
+        test_activity,
+        test_status,
+        test_status_at,
+        lint_activity,
+        lint_status,
+        lint_status_at,
+        build_activity,
+        build_status,
+        build_status_at,
+    )
 
 
 def _refresh_validation_state(session, lines: list[str]) -> None:
@@ -281,6 +351,9 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         effective_lint_activity,
         effective_lint_status,
         effective_lint_status_at,
+        effective_build_activity,
+        effective_build_status,
+        effective_build_status_at,
     ) = _backfill_validation_from_log(session)
     if snapshot.test_activity != "none":
         effective_test_activity = snapshot.test_activity
@@ -294,6 +367,12 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         effective_lint_status = snapshot.lint_status
         if snapshot.lint_status != session.lint_status:
             effective_lint_status_at = timestamp
+    if snapshot.build_activity != "none":
+        effective_build_activity = snapshot.build_activity
+    if snapshot.build_status != "unknown":
+        effective_build_status = snapshot.build_status
+        if snapshot.build_status != session.build_status:
+            effective_build_status_at = timestamp
     if (
         effective_test_activity == session.test_activity
         and effective_test_status == session.test_status
@@ -301,6 +380,9 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         and effective_lint_activity == session.lint_activity
         and effective_lint_status == session.lint_status
         and effective_lint_status_at == session.lint_status_at
+        and effective_build_activity == session.build_activity
+        and effective_build_status == session.build_status
+        and effective_build_status_at == session.build_status_at
     ):
         return
 
@@ -308,6 +390,7 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         session.status,
         test_status=effective_test_status,
         lint_status=effective_lint_status,
+        build_status=effective_build_status,
     )
     _record_validation_state(
         session.id,
@@ -317,9 +400,21 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         lint_activity=effective_lint_activity,
         lint_status=effective_lint_status,
         lint_status_at=effective_lint_status_at,
+        build_activity=effective_build_activity,
+        build_status=effective_build_status,
+        build_status_at=effective_build_status_at,
         needs_attention=needs_attention,
     )
     if effective_test_activity != session.test_activity:
+        _record_validation_transition(
+            session.id,
+            kind="tests",
+            timestamp=timestamp,
+            activity=effective_test_activity,
+            status=effective_test_status,
+            source="activity_change",
+            details={"previous_activity": session.test_activity, "status_at": effective_test_status_at},
+        )
         _event(
             session.id,
             "validation_activity_changed",
@@ -328,6 +423,15 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.test_activity = effective_test_activity
     if effective_test_status != session.test_status:
+        _record_validation_transition(
+            session.id,
+            kind="tests",
+            timestamp=effective_test_status_at or timestamp,
+            activity=effective_test_activity,
+            status=effective_test_status,
+            source="status_change",
+            details={"previous_status": session.test_status},
+        )
         _event(
             session.id,
             "validation_changed",
@@ -337,6 +441,15 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         session.test_status = effective_test_status
         session.test_status_at = effective_test_status_at
     if effective_lint_activity != session.lint_activity:
+        _record_validation_transition(
+            session.id,
+            kind="lint",
+            timestamp=timestamp,
+            activity=effective_lint_activity,
+            status=effective_lint_status,
+            source="activity_change",
+            details={"previous_activity": session.lint_activity, "status_at": effective_lint_status_at},
+        )
         _event(
             session.id,
             "validation_activity_changed",
@@ -345,6 +458,15 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.lint_activity = effective_lint_activity
     if effective_lint_status != session.lint_status:
+        _record_validation_transition(
+            session.id,
+            kind="lint",
+            timestamp=effective_lint_status_at or timestamp,
+            activity=effective_lint_activity,
+            status=effective_lint_status,
+            source="status_change",
+            details={"previous_status": session.lint_status},
+        )
         _event(
             session.id,
             "validation_changed",
@@ -353,6 +475,41 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.lint_status = effective_lint_status
         session.lint_status_at = effective_lint_status_at
+    if effective_build_activity != session.build_activity:
+        _record_validation_transition(
+            session.id,
+            kind="build",
+            timestamp=timestamp,
+            activity=effective_build_activity,
+            status=effective_build_status,
+            source="activity_change",
+            details={"previous_activity": session.build_activity, "status_at": effective_build_status_at},
+        )
+        _event(
+            session.id,
+            "validation_activity_changed",
+            f"Build {effective_build_activity}",
+            {"kind": "build", "activity": effective_build_activity},
+        )
+        session.build_activity = effective_build_activity
+    if effective_build_status != session.build_status:
+        _record_validation_transition(
+            session.id,
+            kind="build",
+            timestamp=effective_build_status_at or timestamp,
+            activity=effective_build_activity,
+            status=effective_build_status,
+            source="status_change",
+            details={"previous_status": session.build_status},
+        )
+        _event(
+            session.id,
+            "validation_changed",
+            f"Build {effective_build_status}",
+            {"kind": "build", "status": effective_build_status},
+        )
+        session.build_status = effective_build_status
+        session.build_status_at = effective_build_status_at
     session.needs_attention = 1 if needs_attention else 0
 
 

@@ -12,6 +12,7 @@ from app.core.constants import SESSIONS_DIR
 from app.db.database import get_conn, init_db
 from app.models.event import EventRecord
 from app.models.session import ALLOWED_TRANSITIONS, SessionMode, SessionRecord, SessionStatus, TERMINAL_STATUSES
+from app.models.validation_history import ValidationHistoryRecord
 from app.runner.client import get_runner_client
 from app.runner.contracts import RunnerClient, RunnerError
 
@@ -134,6 +135,8 @@ def create_managed_session(
     worktree_path = None
     cwd = repo
     changed_files_preview: list[str] = []
+    validation_recipe_id = None
+    validation_recipe_json = "[]"
 
     try:
         if create_worktree_for_writes and allow_write:
@@ -144,6 +147,10 @@ def create_managed_session(
             client.ensure_git_repo(repo, auto_init=True)
         if require_changelog:
             client.ensure_changelog_entry(cwd, name, prompt, now)
+        recipe = client.detect_validation_recipe(cwd)
+        if recipe:
+            validation_recipe_id = recipe.get("recipe_id")
+            validation_recipe_json = recipe.get("recipe_json", "[]")
     except RunnerError as exc:
         raise SessionError(str(exc)) from exc
 
@@ -159,83 +166,78 @@ def create_managed_session(
 
     try:
         with get_conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO sessions (
-                  id, name, mode, status, codex_session_id, codex_rollout_path, codex_updated_at, repo_path, worktree_path, branch,
-                  profile, approval_policy, allow_write, allow_shell, tmux_session, pid,
-                  prompt, created_at, started_at, finished_at, last_activity_at,
-                  last_known_activity, changed_files_count, changed_files_preview, work_phase, work_phase_confidence,
-                  last_major_phase, last_major_phase_confidence, block_category, block_reason, health_score, health_label, health_reason, health_evidence, priority_score, priority_reason, priority_evidence, repo_risk_label, repo_risk_reason,
-                  repo_overlap_count, repo_overlap_preview,
-                  test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at, exit_code, log_path, cwd, target_label,
-                  observability, needs_attention, require_changelog, attachment_state, last_attached_at, last_detached_at,
-                  output_fingerprint, output_observed_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    name,
-                    SessionMode.MANAGED.value,
-                    SessionStatus.CREATED.value,
-                    None,
-                    None,
-                    None,
-                    repo,
-                    worktree_path,
-                    branch,
-                    profile,
-                    approval_policy,
-                    allow_write,
-                    1,
-                    tmux_session,
-                    None,
-                    prompt,
-                    now,
-                    None,
-                    None,
-                    now,
-                    "Session created",
-                    len(changed_files_preview),
-                    json.dumps(changed_files_preview[:10]),
-                    "planning",
-                    "low",
-                    "planning",
-                    "low",
-                    None,
-                    None,
-                    82,
-                    "healthy",
-                    "session is starting",
-                    "the session is still in startup flow",
-                    46,
-                    "starting up",
-                    "the session is still in startup flow",
-                    "low",
-                    "repo state looks normal",
-                    0,
-                    "[]",
-                    "none",
-                    "unknown",
-                    None,
-                    "none",
-                    "unknown",
-                    None,
-                    None,
-                    log_path,
-                    cwd,
-                    "home" if not input_path else Path(repo).name,
-                    "full",
-                    0,
-                    1 if require_changelog else 0,
-                    "detached",
-                    None,
-                    now,
-                    None,
-                    None,
-                    now,
-                ),
-            )
+            payload = {
+                "id": session_id,
+                "name": name,
+                "mode": SessionMode.MANAGED.value,
+                "status": SessionStatus.CREATED.value,
+                "codex_session_id": None,
+                "codex_rollout_path": None,
+                "codex_updated_at": None,
+                "repo_path": repo,
+                "worktree_path": worktree_path,
+                "branch": branch,
+                "profile": profile,
+                "approval_policy": approval_policy,
+                "allow_write": allow_write,
+                "allow_shell": 1,
+                "tmux_session": tmux_session,
+                "pid": None,
+                "prompt": prompt,
+                "created_at": now,
+                "started_at": None,
+                "finished_at": None,
+                "last_activity_at": now,
+                "last_known_activity": "Session created",
+                "changed_files_count": len(changed_files_preview),
+                "changed_files_preview": json.dumps(changed_files_preview[:10]),
+                "work_phase": "planning",
+                "work_phase_confidence": "low",
+                "work_phase_reason": None,
+                "last_major_phase": "planning",
+                "last_major_phase_confidence": "low",
+                "last_major_phase_reason": None,
+                "block_category": None,
+                "block_reason": None,
+                "health_score": 82,
+                "health_label": "healthy",
+                "health_reason": "session is starting",
+                "health_evidence": "the session is still in startup flow",
+                "priority_score": 46,
+                "priority_reason": "starting up",
+                "priority_evidence": "the session is still in startup flow",
+                "repo_risk_label": "low",
+                "repo_risk_reason": "repo state looks normal",
+                "repo_overlap_count": 0,
+                "repo_overlap_preview": "[]",
+                "validation_recipe_id": validation_recipe_id,
+                "validation_recipe_json": validation_recipe_json,
+                "test_activity": "none",
+                "test_status": "unknown",
+                "test_status_at": None,
+                "lint_activity": "none",
+                "lint_status": "unknown",
+                "lint_status_at": None,
+                "build_activity": "none",
+                "build_status": "unknown",
+                "build_status_at": None,
+                "exit_code": None,
+                "log_path": log_path,
+                "cwd": cwd,
+                "target_label": "home" if not input_path else Path(repo).name,
+                "observability": "full",
+                "needs_attention": 0,
+                "require_changelog": 1 if require_changelog else 0,
+                "attachment_state": "detached",
+                "last_attached_at": None,
+                "last_detached_at": now,
+                "output_fingerprint": None,
+                "output_observed_at": None,
+                "updated_at": now,
+            }
+            columns = ", ".join(payload.keys())
+            placeholders = ", ".join("?" for _ in payload)
+            conn.execute(f"INSERT INTO sessions ({columns}) VALUES ({placeholders})", tuple(payload.values()))
             row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
     except IntegrityError as exc:
         raise SessionError(f"session name or tmux session already exists: {name}") from exc
@@ -303,91 +305,96 @@ def adopt_session(
     log_path = _make_log_file(session_id)
     tmux_session = _tmux_session_name(name, session_id)
     branch = None
+    validation_recipe_id = None
+    validation_recipe_json = "[]"
 
     try:
         branch = client.current_branch(repo, repo)
     except RunnerError:
         branch = None
+    try:
+        recipe = client.detect_validation_recipe(repo)
+        if recipe:
+            validation_recipe_id = recipe.get("recipe_id")
+            validation_recipe_json = recipe.get("recipe_json", "[]")
+    except RunnerError:
+        validation_recipe_id = None
+        validation_recipe_json = "[]"
 
     try:
         with get_conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO sessions (
-                  id, name, mode, status, codex_session_id, codex_rollout_path, codex_updated_at, repo_path, worktree_path, branch,
-                  profile, approval_policy, allow_write, allow_shell, tmux_session, pid,
-                  prompt, created_at, started_at, finished_at, last_activity_at,
-                  last_known_activity, changed_files_count, changed_files_preview, work_phase, work_phase_confidence,
-                  last_major_phase, last_major_phase_confidence, block_category, block_reason, health_score, health_label, health_reason, health_evidence, priority_score, priority_reason, priority_evidence, repo_risk_label, repo_risk_reason,
-                  repo_overlap_count, repo_overlap_preview,
-                  test_activity, test_status, test_status_at, lint_activity, lint_status, lint_status_at, exit_code, log_path, cwd, target_label,
-                  observability, needs_attention, require_changelog, attachment_state, last_attached_at, last_detached_at,
-                  output_fingerprint, output_observed_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    name,
-                    SessionMode.ADOPTED.value,
-                    SessionStatus.IDLE.value,
-                    codex_session_id,
-                    None,
-                    None,
-                    repo,
-                    None,
-                    branch,
-                    profile,
-                    "on-request",
-                    0 if profile == "read-only" else 1,
-                    1,
-                    tmux_session,
-                    None,
-                    None,
-                    now,
-                    None,
-                    None,
-                    now,
-                    "Adopted session",
-                    0,
-                    "[]",
-                    "unknown",
-                    "low",
-                    "unknown",
-                    "low",
-                    None,
-                    None,
-                    62,
-                    "monitor",
-                    "idle and detached",
-                    "the session is idle and no terminal is attached",
-                    52,
-                    "worth monitoring",
-                    "health assessment says the session should be monitored",
-                    "low",
-                    "repo state looks normal",
-                    0,
-                    "[]",
-                    "none",
-                    "unknown",
-                    None,
-                    "none",
-                    "unknown",
-                    None,
-                    None,
-                    log_path,
-                    repo,
-                    Path(repo).name,
-                    "reduced",
-                    0,
-                    0,
-                    "detached",
-                    None,
-                    now,
-                    None,
-                    None,
-                    now,
-                ),
-            )
+            payload = {
+                "id": session_id,
+                "name": name,
+                "mode": SessionMode.ADOPTED.value,
+                "status": SessionStatus.IDLE.value,
+                "codex_session_id": codex_session_id,
+                "codex_rollout_path": None,
+                "codex_updated_at": None,
+                "repo_path": repo,
+                "worktree_path": None,
+                "branch": branch,
+                "profile": profile,
+                "approval_policy": "on-request",
+                "allow_write": 0 if profile == "read-only" else 1,
+                "allow_shell": 1,
+                "tmux_session": tmux_session,
+                "pid": None,
+                "prompt": None,
+                "created_at": now,
+                "started_at": None,
+                "finished_at": None,
+                "last_activity_at": now,
+                "last_known_activity": "Adopted session",
+                "changed_files_count": 0,
+                "changed_files_preview": "[]",
+                "work_phase": "unknown",
+                "work_phase_confidence": "low",
+                "work_phase_reason": None,
+                "last_major_phase": "unknown",
+                "last_major_phase_confidence": "low",
+                "last_major_phase_reason": None,
+                "block_category": None,
+                "block_reason": None,
+                "health_score": 62,
+                "health_label": "monitor",
+                "health_reason": "idle and detached",
+                "health_evidence": "the session is idle and no terminal is attached",
+                "priority_score": 52,
+                "priority_reason": "worth monitoring",
+                "priority_evidence": "health assessment says the session should be monitored",
+                "repo_risk_label": "low",
+                "repo_risk_reason": "repo state looks normal",
+                "repo_overlap_count": 0,
+                "repo_overlap_preview": "[]",
+                "validation_recipe_id": validation_recipe_id,
+                "validation_recipe_json": validation_recipe_json,
+                "test_activity": "none",
+                "test_status": "unknown",
+                "test_status_at": None,
+                "lint_activity": "none",
+                "lint_status": "unknown",
+                "lint_status_at": None,
+                "build_activity": "none",
+                "build_status": "unknown",
+                "build_status_at": None,
+                "exit_code": None,
+                "log_path": log_path,
+                "cwd": repo,
+                "target_label": Path(repo).name,
+                "observability": "reduced",
+                "needs_attention": 0,
+                "require_changelog": 0,
+                "attachment_state": "detached",
+                "last_attached_at": None,
+                "last_detached_at": now,
+                "output_fingerprint": None,
+                "output_observed_at": None,
+                "updated_at": now,
+            }
+            columns = ", ".join(payload.keys())
+            placeholders = ", ".join("?" for _ in payload)
+            conn.execute(f"INSERT INTO sessions ({columns}) VALUES ({placeholders})", tuple(payload.values()))
             row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
     except IntegrityError as exc:
         raise SessionError(f"session name already exists: {name}") from exc
@@ -603,6 +610,42 @@ def list_events(session_id: str, limit: int = 100) -> list[EventRecord]:
             (session_id, limit),
         ).fetchall()
     return [EventRecord.from_row(row) for row in rows]
+
+
+def record_validation_history(
+    session_id: str,
+    *,
+    kind: str,
+    timestamp: str,
+    activity: str | None,
+    status: str | None,
+    source: str = "reconcile",
+    details: dict | None = None,
+) -> None:
+    init_db()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO validation_history (session_id, timestamp, kind, activity, status, source, details_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, timestamp, kind, activity, status, source, json.dumps(details or {})),
+        )
+
+
+def list_validation_history(session_id: str, limit: int = 30) -> list[ValidationHistoryRecord]:
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM validation_history
+            WHERE session_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (session_id, limit),
+        ).fetchall()
+    return [ValidationHistoryRecord.from_row(row) for row in rows]
 
 
 def update_status(name_or_id: str, status: SessionStatus, note: str) -> SessionRecord:

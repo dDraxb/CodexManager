@@ -29,6 +29,9 @@ class RunnerClient(Protocol):
     def ensure_changelog_entry(self, repo_path: str, session_name: str, prompt: str | None, timestamp: str) -> str:
         """Ensure CHANGELOG.md exists and append a new work entry template."""
 
+    def detect_validation_recipe(self, repo_path: str) -> dict | None:
+        """Return validation recipe metadata when the working directory is recognized."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

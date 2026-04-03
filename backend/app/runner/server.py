@@ -174,6 +174,15 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         )
         return {"changelog_path": changelog_path}
 
+    @app.post("/detect-validation-recipe")
+    def detect_validation_recipe_endpoint(
+        request: RepoPathRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        recipe = runner_call(lambda: runner.detect_validation_recipe(request.repo_path or ""))
+        return {"recipe": recipe}
+
     @app.post("/codex/find-recent-session")
     def find_recent_codex_session(
         request: FindRecentCodexSessionRequest,

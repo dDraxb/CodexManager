@@ -81,12 +81,17 @@ def init_db() -> None:
               repo_risk_reason TEXT NOT NULL DEFAULT '',
               repo_overlap_count INTEGER NOT NULL DEFAULT 0,
               repo_overlap_preview TEXT NOT NULL DEFAULT '[]',
+              validation_recipe_id TEXT,
+              validation_recipe_json TEXT NOT NULL DEFAULT '[]',
               test_activity TEXT NOT NULL DEFAULT 'none',
               test_status TEXT,
               test_status_at TEXT,
               lint_activity TEXT NOT NULL DEFAULT 'none',
               lint_status TEXT,
               lint_status_at TEXT,
+              build_activity TEXT NOT NULL DEFAULT 'none',
+              build_status TEXT,
+              build_status_at TEXT,
               exit_code INTEGER,
               log_path TEXT NOT NULL,
               cwd TEXT,
@@ -118,6 +123,24 @@ def init_db() -> None:
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, timestamp)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS validation_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              timestamp TEXT NOT NULL,
+              kind TEXT NOT NULL CHECK(kind in ('tests','lint','build')),
+              activity TEXT,
+              status TEXT,
+              source TEXT NOT NULL DEFAULT 'reconcile',
+              details_json TEXT,
+              FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_validation_history_session_time ON validation_history(session_id, timestamp)"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)"
@@ -154,11 +177,16 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
         ("repo_risk_reason", "ALTER TABLE sessions ADD COLUMN repo_risk_reason TEXT NOT NULL DEFAULT ''"),
         ("repo_overlap_count", "ALTER TABLE sessions ADD COLUMN repo_overlap_count INTEGER NOT NULL DEFAULT 0"),
         ("repo_overlap_preview", "ALTER TABLE sessions ADD COLUMN repo_overlap_preview TEXT NOT NULL DEFAULT '[]'"),
+        ("validation_recipe_id", "ALTER TABLE sessions ADD COLUMN validation_recipe_id TEXT"),
+        ("validation_recipe_json", "ALTER TABLE sessions ADD COLUMN validation_recipe_json TEXT NOT NULL DEFAULT '[]'"),
         ("test_activity", "ALTER TABLE sessions ADD COLUMN test_activity TEXT NOT NULL DEFAULT 'none'"),
         ("test_status_at", "ALTER TABLE sessions ADD COLUMN test_status_at TEXT"),
         ("observability", "ALTER TABLE sessions ADD COLUMN observability TEXT NOT NULL DEFAULT 'full'"),
         ("lint_activity", "ALTER TABLE sessions ADD COLUMN lint_activity TEXT NOT NULL DEFAULT 'none'"),
         ("lint_status_at", "ALTER TABLE sessions ADD COLUMN lint_status_at TEXT"),
+        ("build_activity", "ALTER TABLE sessions ADD COLUMN build_activity TEXT NOT NULL DEFAULT 'none'"),
+        ("build_status", "ALTER TABLE sessions ADD COLUMN build_status TEXT"),
+        ("build_status_at", "ALTER TABLE sessions ADD COLUMN build_status_at TEXT"),
         ("needs_attention", "ALTER TABLE sessions ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0"),
         ("require_changelog", "ALTER TABLE sessions ADD COLUMN require_changelog INTEGER NOT NULL DEFAULT 0"),
         ("codex_rollout_path", "ALTER TABLE sessions ADD COLUMN codex_rollout_path TEXT"),
@@ -174,5 +202,5 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
         if column not in existing:
             conn.execute(statement)
     conn.execute(
-        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none')"
+        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), validation_recipe_json = COALESCE(validation_recipe_json, '[]'), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none'), build_activity = COALESCE(build_activity, 'none')"
     )

@@ -396,3 +396,52 @@ def test_api_can_update_codex_session_link(configured_modules, git_repo):
     assert response.json()["codex_session_id"] == "019ce115-d070-7053-b385-870d5e021ea7"
     assert response.json()["codex_rollout_path"] == "/tmp/rollout.jsonl"
     assert response.json()["codex_updated_at"] == 2
+
+
+def test_api_lists_validation_history(configured_modules, git_repo):
+    from app.api import server
+    from app.services.sessions import record_validation_history
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "validation-history-api",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "launch": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    session_id = response.json()["id"]
+
+    record_validation_history(
+        session_id,
+        kind="tests",
+        timestamp="2026-04-03T10:00:00+00:00",
+        activity="none",
+        status="passed",
+        source="status_change",
+        details={"previous_status": "unknown"},
+    )
+    record_validation_history(
+        session_id,
+        kind="build",
+        timestamp="2026-04-03T10:01:00+00:00",
+        activity="active",
+        status="unknown",
+        source="activity_change",
+        details={"previous_activity": "none"},
+    )
+
+    response = client.get(f"/api/sessions/{session_id}/validation-history?limit=10")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 2
+    assert payload[0]["kind"] == "build"
+    assert payload[0]["activity"] == "active"
+    assert payload[1]["kind"] == "tests"
+    assert payload[1]["status"] == "passed"

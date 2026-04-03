@@ -825,6 +825,10 @@ p {
   border-top: 1px dashed rgba(89, 118, 148, 0.24);
 }
 
+.activity-subsection {
+  margin-top: 12px;
+}
+
 .activity-label {
   color: #b6c7dc;
   font-size: 0.78rem;
