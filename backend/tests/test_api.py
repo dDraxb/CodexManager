@@ -238,6 +238,32 @@ def test_api_returns_codex_environment(configured_modules, tmp_path, monkeypatch
     assert payload["workspaceSkills"][0]["name"] == "repo-helper"
 
 
+def test_api_creates_workspace_skill(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/codex-skills",
+        json={
+            "scope": "workspace",
+            "name": "release-guard",
+            "summary": "Release checklist enforcement",
+            "repoPath": str(repo),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["scope"] == "workspace"
+    assert (repo / ".codex" / "skills" / "release-guard" / "SKILL.md").exists()
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

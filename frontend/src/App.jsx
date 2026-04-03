@@ -22,10 +22,17 @@ const EMPTY_ADOPT_FORM = {
   profile: 'read-only'
 }
 
+const EMPTY_SKILL_FORM = {
+  scope: 'global',
+  name: '',
+  summary: ''
+}
+
 const COMMAND_TABS = [
   { id: 'create', label: 'New session' },
   { id: 'adopt', label: 'Adopt session' },
-  { id: 'cleanup', label: 'Cleanup' }
+  { id: 'cleanup', label: 'Cleanup' },
+  { id: 'environment', label: 'Codex environment' }
 ]
 
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
@@ -665,6 +672,7 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
   const [adoptForm, setAdoptForm] = useState(EMPTY_ADOPT_FORM)
+  const [skillForm, setSkillForm] = useState(EMPTY_SKILL_FORM)
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [sessionQuery, setSessionQuery] = useState('')
@@ -1211,6 +1219,38 @@ export default function App() {
     await refreshAfterMutation(null)
   }
 
+  async function createCodexSkill(event) {
+    event.preventDefault()
+    const payload = {
+      scope: skillForm.scope,
+      name: skillForm.name.trim(),
+      summary: skillForm.summary.trim(),
+      repoPath: skillForm.scope === 'workspace' ? (detail?.repo_path || selectedSession?.repo_path || '') : null
+    }
+    if (!payload.name) {
+      notify('error', 'Skill name is required')
+      return
+    }
+    if (payload.scope === 'workspace' && !payload.repoPath) {
+      notify('error', 'Select a session with a working directory for workspace skills')
+      return
+    }
+    const result = await runRequest(
+      () =>
+        fetchJson('/api/codex-skills', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }),
+      (created) => `Created ${created.scope} skill ${created.name}`
+    )
+    if (!result) return
+    setSkillForm((prev) => ({ ...EMPTY_SKILL_FORM, scope: prev.scope }))
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -1321,7 +1361,15 @@ export default function App() {
           <div className="command-module-head">
             <div>
               <p className="eyebrow">Session Controls</p>
-              <h2>{commandTab === 'create' ? 'Create and manage sessions' : commandTab === 'adopt' ? 'Adopt existing Codex work' : 'Review and clean archived sessions'}</h2>
+              <h2>{
+                commandTab === 'create'
+                  ? 'Create and manage sessions'
+                  : commandTab === 'adopt'
+                    ? 'Adopt existing Codex work'
+                    : commandTab === 'environment'
+                      ? 'Inspect and shape Codex environment assets'
+                      : 'Review and clean archived sessions'
+              }</h2>
             </div>
             <div className="command-head-actions">
               <button
@@ -1567,6 +1615,66 @@ export default function App() {
                 <button className="ghost danger" onClick={() => bulkDelete('test-named')}>Delete test-named sessions</button>
               </div>
               <p className="muted">Archived view includes finished, failed, stopped, and lost sessions.</p>
+            </div>
+          ) : null}
+
+          {showCommandPanel && commandTab === 'environment' ? (
+            <div className="command-pane">
+              <div className="command-head">
+                <div>
+                  <p className="eyebrow">Codex Environment</p>
+                  <h2>Configs and skills</h2>
+                </div>
+                <span className="badge badge-stopped">{detail?.repo_path || selectedSession?.repo_path ? 'session-scoped' : 'global-only'}</span>
+              </div>
+              <div className="history-browser">
+                <div className="history-item">
+                  <div className="row between">
+                    <strong>Config inventory</strong>
+                    <span className="badge badge-stopped">{codexEnvironment?.codexHome || 'no Codex home'}</span>
+                  </div>
+                  <p className="muted">Global config: {codexEnvironment?.globalConfig?.exists ? codexEnvironment.globalConfig.path : 'missing'}</p>
+                  <p className="muted">Workspace config: {codexEnvironment?.workspaceConfig?.exists ? codexEnvironment.workspaceConfig.path : 'missing'}</p>
+                </div>
+                <div className="history-item">
+                  <div className="row between">
+                    <strong>Installed skills</strong>
+                    <span className="badge badge-running">
+                      {`${codexEnvironment?.globalSkills?.length || 0} global · ${codexEnvironment?.workspaceSkills?.length || 0} workspace`}
+                    </span>
+                  </div>
+                  <p className="muted">
+                    Global: {(codexEnvironment?.globalSkills || []).map((skill) => skill.name).join(', ') || 'none'}
+                  </p>
+                  <p className="muted">
+                    Workspace: {(codexEnvironment?.workspaceSkills || []).map((skill) => skill.name).join(', ') || 'none'}
+                  </p>
+                </div>
+              </div>
+              <form className="stack-form" onSubmit={createCodexSkill}>
+                <div className="command-settings-grid adopt-settings-grid">
+                  <label className="field">
+                    <span>Skill scope</span>
+                    <select value={skillForm.scope} onChange={(event) => setSkillForm((prev) => ({ ...prev, scope: event.target.value }))}>
+                      <option value="global">global</option>
+                      <option value="workspace">workspace</option>
+                    </select>
+                  </label>
+                  <div className="helper-copy">
+                    <span className="field-label">Creation target</span>
+                    <p className="muted">
+                      {skillForm.scope === 'workspace'
+                        ? `Workspace skills are created under ${(detail?.repo_path || selectedSession?.repo_path || 'the selected repo')}/.codex/skills`
+                        : `Global skills are created under ${codexEnvironment?.codexHome || '~/.codex'}/skills`}
+                    </p>
+                  </div>
+                </div>
+                <div className="command-form-grid">
+                  <input placeholder="Skill name (e.g. release-guard)" value={skillForm.name} onChange={(event) => setSkillForm((prev) => ({ ...prev, name: event.target.value }))} />
+                  <input placeholder="Short purpose summary" value={skillForm.summary} onChange={(event) => setSkillForm((prev) => ({ ...prev, summary: event.target.value }))} />
+                </div>
+                <button type="submit" className="primary">Create skill scaffold</button>
+              </form>
             </div>
           ) : null}
         </article>

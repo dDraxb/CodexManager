@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
 from app.services.codex_environment import inspect_codex_environment
+from app.services.codex_skills import CodexSkillError, create_codex_skill
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -75,6 +76,13 @@ class ValidationPresetApplyRequest(BaseModel):
 class ValidationRecipeMaterializeRequest(BaseModel):
     repo_path: str = Field(alias="repoPath")
     recipe_json: str = Field(alias="recipeJson")
+
+
+class CodexSkillCreateRequest(BaseModel):
+    scope: str
+    name: str
+    summary: str = ""
+    repo_path: str | None = Field(default=None, alias="repoPath")
 
 
 def _session_or_404(session_id: str):
@@ -152,6 +160,19 @@ def repo_policies() -> dict:
 @app.get("/api/codex-environment")
 def codex_environment(repo_path: str | None = None) -> dict:
     return inspect_codex_environment(repo_path)
+
+
+@app.post("/api/codex-skills")
+def create_skill(request: CodexSkillCreateRequest) -> dict:
+    try:
+        return create_codex_skill(
+            scope=request.scope,
+            name=request.name,
+            summary=request.summary,
+            repo_path=request.repo_path,
+        )
+    except CodexSkillError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/validation-presets/apply")
