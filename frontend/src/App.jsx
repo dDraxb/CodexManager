@@ -150,6 +150,24 @@ function validationResultDetail(kind, status, timestamp) {
     : validationResultLabel(kind, status)
 }
 
+function validationCheckObservedState(kind, session) {
+  const activityKey = `${kind}_activity`
+  const statusKey = `${kind}_status`
+  const activity = session?.[activityKey] || 'none'
+  const status = session?.[statusKey] || 'unknown'
+  if (activity === 'active') {
+    return 'active now'
+  }
+  if (status === 'unknown') {
+    return 'not observed yet'
+  }
+  return status
+}
+
+function validationCheckRequirementLabel(required) {
+  return required === false ? 'optional' : 'required'
+}
+
 function validationHistoryEntryLabel(entry) {
   if (!entry) return 'Unknown validation update'
   const noun = entry.kind === 'lint' ? 'Lint' : entry.kind === 'build' ? 'Build' : 'Tests'
@@ -1573,12 +1591,27 @@ export default function App() {
           <div className="activity-section">
             <p className="activity-label">Validation</p>
             {validationRecipe?.label ? (
-              <p className="muted">
-                Validation recipe: {validationRecipe.label}
-                {Array.isArray(validationRecipe.checks) && validationRecipe.checks.length
-                  ? ` · ${validationRecipe.checks.map((check) => check.command).join(' · ')}`
-                  : ''}
-              </p>
+              <>
+                <p className="muted">Validation recipe: {validationRecipe.label}</p>
+                {Array.isArray(validationRecipe.checks) && validationRecipe.checks.length ? (
+                  <div className="activity-subsection">
+                    <p className="activity-label">Expected checks</p>
+                    {validationRecipe.checks.map((check, index) => (
+                      <div key={`${check.kind}-${check.command}-${index}`} className="phase-timeline-item validation-history-item">
+                        <div className="phase-timeline-text">
+                          <div className="phase-timeline-main">
+                            <strong>{check.label || phaseLabel(check.kind)}</strong>
+                            <span className="muted">
+                              {validationCheckRequirementLabel(check.required)} · {validationCheckObservedState(check.kind, detail || selectedSession || {})}
+                            </span>
+                          </div>
+                          <p className="muted timeline-detail">{check.command}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
             ) : (
               <p className="muted">Validation recipe: not detected yet</p>
             )}
