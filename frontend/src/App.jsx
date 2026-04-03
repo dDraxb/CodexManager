@@ -294,6 +294,19 @@ function parseValidationRecipe(rawRecipe) {
   }
 }
 
+function createRecipeDraft(recipe) {
+  if (!recipe || !Array.isArray(recipe.checks) || !recipe.checks.length) return null
+  return {
+    label: recipe.label || 'Custom validation',
+    checks: recipe.checks.map((check) => ({
+      kind: check.kind,
+      label: check.label || phaseLabel(check.kind),
+      command: check.command || '',
+      required: check.required !== false
+    }))
+  }
+}
+
 function stateTimelineEntry(event) {
   const metadata = parseEventMetadata(event)
   if (event.type === 'status_changed') {
@@ -584,6 +597,7 @@ export default function App() {
   const [sessions, setSessions] = useState([])
   const [validationPresets, setValidationPresets] = useState([])
   const [selectedValidationPreset, setSelectedValidationPreset] = useState('')
+  const [recipeDraft, setRecipeDraft] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [events, setEvents] = useState([])
@@ -648,6 +662,7 @@ export default function App() {
     () => visibleSessions.find((session) => session.id === selectedId) || sessions.find((session) => session.id === selectedId) || null,
     [selectedId, sessions, visibleSessions]
   )
+  const validationRecipe = parseValidationRecipe(detail?.validation_recipe_json || selectedSession?.validation_recipe_json)
   const canAct = !!selectedSession
   const canAttach = !!selectedSession && !(selectedSession.mode === 'adopted' && !selectedSession.started_at)
   const canResumeFromHistory = !!selectedSession?.codex_session_id && !canAttach
@@ -714,6 +729,10 @@ export default function App() {
       return validationPresets[0].id
     })
   }, [validationPresets])
+
+  useEffect(() => {
+    setRecipeDraft(createRecipeDraft(validationRecipe))
+  }, [detail?.validation_recipe_json, selectedSession?.validation_recipe_json])
 
   function notify(type, message) {
     setToast({ type, message })
@@ -1129,7 +1148,7 @@ export default function App() {
 
   async function materializeValidationRecipeForSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
-    const recipeJson = detail?.validation_recipe_json || selectedSession?.validation_recipe_json || ''
+    const recipeJson = recipeDraft ? JSON.stringify(recipeDraft) : (detail?.validation_recipe_json || selectedSession?.validation_recipe_json || '')
     if (!repoPath || !recipeJson) {
       notify('error', 'Select a session with a working directory and detected validation recipe first')
       return
@@ -1150,9 +1169,28 @@ export default function App() {
     await refreshAfterMutation(selectedSession?.id || null)
   }
 
+  function resetRecipeDraft() {
+    setRecipeDraft(createRecipeDraft(validationRecipe))
+  }
+
+  function updateRecipeDraftLabel(value) {
+    setRecipeDraft((current) => (current ? { ...current, label: value } : current))
+  }
+
+  function updateRecipeDraftCheck(index, key, value) {
+    setRecipeDraft((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        checks: current.checks.map((check, checkIndex) => (
+          checkIndex === index ? { ...check, [key]: value } : check
+        ))
+      }
+    })
+  }
+
   const activeCount = sessions.filter((session) => !isArchivedSession(session)).length
   const archivedCount = sessions.filter((session) => isArchivedSession(session)).length
-  const validationRecipe = parseValidationRecipe(detail?.validation_recipe_json || selectedSession?.validation_recipe_json)
 
   return (
     <div className="shell">
@@ -1708,15 +1746,68 @@ export default function App() {
                   <div className="activity-subsection">
                     <div className="row">
                       <p className="activity-label">Local recipe</p>
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={materializeValidationRecipeForSelected}
-                        disabled={!selectedSession?.repo_path}
-                      >
-                        Save local recipe
-                      </button>
+                      <div className="row">
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={resetRecipeDraft}
+                          disabled={!recipeDraft}
+                        >
+                          Reset draft
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={materializeValidationRecipeForSelected}
+                          disabled={!selectedSession?.repo_path || !recipeDraft}
+                        >
+                          Save local recipe
+                        </button>
+                      </div>
                     </div>
+                    {recipeDraft ? (
+                      <div className="recipe-draft">
+                        <label className="field">
+                          <span className="muted">Recipe label</span>
+                          <input
+                            type="text"
+                            value={recipeDraft.label}
+                            onChange={(event) => updateRecipeDraftLabel(event.target.value)}
+                          />
+                        </label>
+                        {recipeDraft.checks.map((check, index) => (
+                          <div key={`${check.kind}-${index}`} className="recipe-draft-check">
+                            <div className="row between">
+                              <strong>{phaseLabel(check.kind)}</strong>
+                              <label className="checkbox muted">
+                                <input
+                                  type="checkbox"
+                                  checked={check.required !== false}
+                                  onChange={(event) => updateRecipeDraftCheck(index, 'required', event.target.checked)}
+                                />
+                                Required
+                              </label>
+                            </div>
+                            <label className="field">
+                              <span className="muted">Check label</span>
+                              <input
+                                type="text"
+                                value={check.label}
+                                onChange={(event) => updateRecipeDraftCheck(index, 'label', event.target.value)}
+                              />
+                            </label>
+                            <label className="field">
+                              <span className="muted">Command</span>
+                              <input
+                                type="text"
+                                value={check.command}
+                                onChange={(event) => updateRecipeDraftCheck(index, 'command', event.target.value)}
+                              />
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {Array.isArray(validationRecipe.checks) && validationRecipe.checks.length ? (

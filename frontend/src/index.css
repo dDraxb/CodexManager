@@ -829,6 +829,27 @@ p {
   margin-top: 12px;
 }
 
+.recipe-draft {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.recipe-draft-check {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(89, 118, 148, 0.24);
+  border-radius: 14px;
+  background: rgba(8, 18, 31, 0.38);
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .activity-label {
   color: #b6c7dc;
   font-size: 0.78rem;
