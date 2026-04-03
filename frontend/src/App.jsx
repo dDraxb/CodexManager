@@ -321,6 +321,15 @@ function stateTimelineEntry(event) {
       detail: metadata.review_readiness_reason || null
     }
   }
+  if (event.type === 'completion_state_changed') {
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      label: 'Completion',
+      value: completionStateLabel(metadata.completion_state || event.message.replace('Completion state -> ', '').trim()),
+      detail: metadata.completion_reason || null
+    }
+  }
   if (event.type === 'health_changed') {
     return {
       id: event.id,
@@ -416,6 +425,17 @@ function reviewReadinessLabel(state) {
   return map[state] || 'Review readiness not established'
 }
 
+function completionStateLabel(state) {
+  const map = {
+    in_progress: 'Still in progress',
+    ready_for_review: 'Ready for review',
+    ready_with_gaps: 'Ready for review with optional gaps',
+    not_ready: 'Not ready for review',
+    unknown: 'Completion state not established'
+  }
+  return map[state] || 'Completion state not established'
+}
+
 function operationalSummary(session) {
   if (!session) return 'No session selected.'
   const parts = []
@@ -429,6 +449,9 @@ function operationalSummary(session) {
   }
   if (session.review_readiness_state && session.review_readiness_state !== 'unknown') {
     parts.push(`review readiness is ${reviewReadinessLabel(session.review_readiness_state).toLowerCase()}`)
+  }
+  if (session.completion_state && session.completion_state !== 'unknown') {
+    parts.push(`completion says ${completionStateLabel(session.completion_state).toLowerCase()}`)
   }
   if (session.changed_since_green_validation) {
     parts.push('code changed after the last green validation')
@@ -1582,6 +1605,12 @@ export default function App() {
             </p>
             <p className="muted">
               {detail?.review_readiness_reason || selectedSession?.review_readiness_reason || 'Review readiness has not been established yet'}
+            </p>
+            <p className="muted">
+              {completionStateLabel(detail?.completion_state || selectedSession?.completion_state || 'unknown')}
+            </p>
+            <p className="muted">
+              {detail?.completion_reason || selectedSession?.completion_reason || 'Completion state has not been established yet'}
             </p>
             <div className="activity-subsection">
               <p className="activity-label">Recent validation runs</p>

@@ -20,6 +20,7 @@ from app.services.sessions import (
 from app.services.health import assess_session_health
 from app.services.priority import assess_session_priority
 from app.services.repo_risk import assess_repo_risk
+from app.services.completion_state import assess_completion_state
 from app.services.review_readiness import assess_review_readiness
 from app.services.validation import STATUS_FAILED, analyze_validation
 from app.services.validation_recipe import validation_policy_state
@@ -211,6 +212,23 @@ def _record_review_readiness(session_id: str, *, state: str, reason: str | None)
             """
             UPDATE sessions
             SET review_readiness_state = ?, review_readiness_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                state,
+                reason,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _record_completion_state(session_id: str, *, state: str, reason: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET completion_state = ?, completion_reason = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -767,6 +785,31 @@ def _refresh_review_readiness(session) -> None:
     session.review_readiness_reason = snapshot.reason
 
 
+def _refresh_completion_state(session) -> None:
+    snapshot = assess_completion_state(
+        status=session.status,
+        review_readiness_state=session.review_readiness_state,
+        review_readiness_reason=session.review_readiness_reason,
+    )
+    if (
+        snapshot.state == (session.completion_state or "unknown")
+        and snapshot.reason == session.completion_reason
+    ):
+        return
+    _record_completion_state(session.id, state=snapshot.state, reason=snapshot.reason)
+    _event(
+        session.id,
+        "completion_state_changed",
+        f"Completion state -> {snapshot.state}",
+        {
+            "completion_state": snapshot.state,
+            "completion_reason": snapshot.reason,
+        },
+    )
+    session.completion_state = snapshot.state
+    session.completion_reason = snapshot.reason
+
+
 def _refresh_work_phase(session, lines: list[str]) -> None:
     snapshot = infer_work_phase(
         lines=lines,
@@ -1172,6 +1215,7 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
         _refresh_validation_coverage(session)
         _refresh_work_phase(session, lines)
         _refresh_review_readiness(session)
+        _refresh_completion_state(session)
         _refresh_codex_session_link(session, client)
         if idle_age is None:
             _refresh_health(session, None, settings.monitor_idle_seconds)

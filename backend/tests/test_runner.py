@@ -712,8 +712,11 @@ def test_reconcile_once_tracks_missing_recipe_validation_checks(configured_modul
     assert refreshed.validation_coverage_reason == "required recipe checks not yet observed: lint, build"
     assert refreshed.review_readiness_state == "not_ready"
     assert refreshed.review_readiness_reason == "required validation checks are still missing"
+    assert refreshed.completion_state == "not_ready"
+    assert refreshed.completion_reason == "required validation checks are still missing"
     events = list_events(session.id)
     assert any(event.type == "review_readiness_changed" and event.message == "Review readiness -> not_ready" for event in events)
+    assert any(event.type == "completion_state_changed" and event.message == "Completion state -> not_ready" for event in events)
 
 
 def test_reconcile_once_marks_blocked_phase_from_environment_errors(configured_modules, git_repo):

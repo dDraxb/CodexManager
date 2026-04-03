@@ -89,6 +89,8 @@ def init_db() -> None:
               validation_policy_reason TEXT,
               review_readiness_state TEXT NOT NULL DEFAULT 'unknown',
               review_readiness_reason TEXT,
+              completion_state TEXT NOT NULL DEFAULT 'unknown',
+              completion_reason TEXT,
               validation_coverage_reason TEXT,
               last_green_validation_kind TEXT,
               last_green_validation_at TEXT,
@@ -198,6 +200,8 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
         ("validation_policy_reason", "ALTER TABLE sessions ADD COLUMN validation_policy_reason TEXT"),
         ("review_readiness_state", "ALTER TABLE sessions ADD COLUMN review_readiness_state TEXT NOT NULL DEFAULT 'unknown'"),
         ("review_readiness_reason", "ALTER TABLE sessions ADD COLUMN review_readiness_reason TEXT"),
+        ("completion_state", "ALTER TABLE sessions ADD COLUMN completion_state TEXT NOT NULL DEFAULT 'unknown'"),
+        ("completion_reason", "ALTER TABLE sessions ADD COLUMN completion_reason TEXT"),
         ("validation_coverage_reason", "ALTER TABLE sessions ADD COLUMN validation_coverage_reason TEXT"),
         ("last_green_validation_kind", "ALTER TABLE sessions ADD COLUMN last_green_validation_kind TEXT"),
         ("last_green_validation_at", "ALTER TABLE sessions ADD COLUMN last_green_validation_at TEXT"),
@@ -232,5 +236,5 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
                 if "duplicate column name" not in str(exc).lower():
                     raise
     conn.execute(
-        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), validation_recipe_json = COALESCE(validation_recipe_json, '[]'), missing_validation_checks_json = COALESCE(missing_validation_checks_json, '[]'), optional_validation_checks_json = COALESCE(optional_validation_checks_json, '[]'), validation_policy_state = COALESCE(validation_policy_state, 'unknown'), review_readiness_state = COALESCE(review_readiness_state, 'unknown'), last_green_changed_files_count = COALESCE(last_green_changed_files_count, 0), last_green_changed_files_preview = COALESCE(last_green_changed_files_preview, '[]'), changed_since_green_validation = COALESCE(changed_since_green_validation, 0), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none'), build_activity = COALESCE(build_activity, 'none')"
+        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), validation_recipe_json = COALESCE(validation_recipe_json, '[]'), missing_validation_checks_json = COALESCE(missing_validation_checks_json, '[]'), optional_validation_checks_json = COALESCE(optional_validation_checks_json, '[]'), validation_policy_state = COALESCE(validation_policy_state, 'unknown'), review_readiness_state = COALESCE(review_readiness_state, 'unknown'), completion_state = COALESCE(completion_state, 'unknown'), last_green_changed_files_count = COALESCE(last_green_changed_files_count, 0), last_green_changed_files_preview = COALESCE(last_green_changed_files_preview, '[]'), changed_since_green_validation = COALESCE(changed_since_green_validation, 0), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none'), build_activity = COALESCE(build_activity, 'none')"
     )

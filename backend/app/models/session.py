@@ -132,6 +132,8 @@ class SessionRecord:
     validation_policy_reason: str | None
     review_readiness_state: str
     review_readiness_reason: str | None
+    completion_state: str
+    completion_reason: str | None
     validation_coverage_reason: str | None
     last_green_validation_kind: str | None
     last_green_validation_at: str | None

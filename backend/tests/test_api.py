@@ -33,6 +33,7 @@ def test_api_start_and_list(configured_modules, git_repo):
     assert response.json()["priority_score"] == 46
     assert response.json()["repo_risk_label"] == "low"
     assert response.json()["review_readiness_state"] == "unknown"
+    assert response.json()["completion_state"] == "unknown"
 
     response = client.get("/api/sessions")
     assert response.status_code == 200
@@ -48,6 +49,7 @@ def test_api_start_and_list(configured_modules, git_repo):
     assert rows[0]["priority_score"] == 46
     assert rows[0]["repo_risk_label"] == "low"
     assert rows[0]["review_readiness_state"] == "unknown"
+    assert rows[0]["completion_state"] == "unknown"
     response = client.get(f"/api/sessions/{sid}")
     assert response.status_code == 200
 
