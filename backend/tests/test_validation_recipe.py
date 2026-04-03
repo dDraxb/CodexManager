@@ -99,6 +99,76 @@ def test_detect_validation_recipe_falls_back_when_override_invalid(tmp_path):
     assert [check.kind for check in recipe.checks] == ["tests", "lint"]
 
 
+def test_detect_validation_recipe_uses_manager_preset_reference(tmp_path, monkeypatch):
+    from app.services.validation_recipe import detect_validation_recipe
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "validation-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "strict-node": {
+                        "label": "Strict Node",
+                        "checks": [
+                            {"kind": "tests", "label": "Tests", "command": "npm test"},
+                            {"kind": "lint", "label": "Lint", "command": "npm run lint"},
+                            {"kind": "build", "label": "Build", "command": "npm run build", "required": False},
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    project = tmp_path / "preset-app"
+    project.mkdir()
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest"}}),
+        encoding="utf-8",
+    )
+    (project / ".codexmgr.validation.json").write_text(
+        json.dumps({"preset": "strict-node"}),
+        encoding="utf-8",
+    )
+
+    recipe = detect_validation_recipe(str(project))
+
+    assert recipe is not None
+    assert recipe.recipe_id == "preset:strict-node"
+    assert recipe.label == "Strict Node"
+    assert [check.command for check in recipe.checks] == ["npm test", "npm run lint", "npm run build"]
+    assert [check.required for check in recipe.checks] == [True, True, False]
+
+
+def test_detect_validation_recipe_falls_back_when_preset_reference_is_missing(tmp_path, monkeypatch):
+    from app.services.validation_recipe import detect_validation_recipe
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "validation-presets.json").write_text(json.dumps({"presets": {}}), encoding="utf-8")
+
+    project = tmp_path / "preset-fallback-app"
+    project.mkdir()
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest", "lint": "eslint ."}}),
+        encoding="utf-8",
+    )
+    (project / ".codexmgr.validation.json").write_text(
+        json.dumps({"preset": "missing-preset"}),
+        encoding="utf-8",
+    )
+
+    recipe = detect_validation_recipe(str(project))
+
+    assert recipe is not None
+    assert recipe.recipe_id == "node"
+    assert [check.kind for check in recipe.checks] == ["tests", "lint"]
+
+
 def test_missing_validation_checks_ignores_optional_checks():
     from app.services.validation_recipe import missing_validation_checks
 

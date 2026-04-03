@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from app.core.settings import load_settings
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationCheck:
@@ -69,6 +71,33 @@ def _normalize_custom_recipe(payload: dict, recipe_id: str) -> ValidationRecipe 
     return ValidationRecipe(recipe_id, label, checks)
 
 
+def _load_manager_preset_library() -> dict:
+    settings = load_settings()
+    candidates = [
+        (settings.app_home / "validation-presets.json", _load_json),
+        (settings.app_home / "validation-presets.toml", _load_toml),
+        (settings.app_home / "presets" / "validation.json", _load_json),
+        (settings.app_home / "presets" / "validation.toml", _load_toml),
+    ]
+    for path, loader in candidates:
+        if not path.exists():
+            continue
+        payload = loader(path)
+        if not isinstance(payload, dict):
+            continue
+        presets = payload.get("presets") if isinstance(payload.get("presets"), dict) else payload
+        return presets if isinstance(presets, dict) else {}
+    return {}
+
+
+def _recipe_from_preset_id(preset_id: str) -> ValidationRecipe | None:
+    presets = _load_manager_preset_library()
+    payload = presets.get(preset_id)
+    if not isinstance(payload, dict):
+        return None
+    return _normalize_custom_recipe(payload, f"preset:{preset_id}")
+
+
 def _custom_recipe(root: Path) -> ValidationRecipe | None:
     candidates = [
         (root / ".codexmgr" / "validation.json", _load_json, "custom-json"),
@@ -82,6 +111,11 @@ def _custom_recipe(root: Path) -> ValidationRecipe | None:
         payload = loader(path)
         if not isinstance(payload, dict):
             continue
+        preset_id = str(payload.get("preset") or "").strip()
+        if preset_id:
+            recipe = _recipe_from_preset_id(preset_id)
+            if recipe is not None:
+                return recipe
         recipe = _normalize_custom_recipe(payload, recipe_id)
         if recipe is not None:
             return recipe
