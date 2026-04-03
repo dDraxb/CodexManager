@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
+from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
     SessionError,
@@ -140,6 +141,11 @@ def codex_history(query: str | None = None, cwd: str | None = None, limit: int =
 @app.get("/api/validation-presets")
 def validation_presets() -> dict:
     return {"presets": list_manager_validation_presets()}
+
+
+@app.get("/api/repo-policies")
+def repo_policies() -> dict:
+    return {"policies": list_repo_policies()}
 
 
 @app.post("/api/validation-presets/apply")

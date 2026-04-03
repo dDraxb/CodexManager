@@ -130,6 +130,9 @@ class SessionRecord:
     repo_risk_reason: str
     repo_overlap_count: int
     repo_overlap_preview: str
+    repo_policy_id: str | None
+    repo_policy_label: str | None
+    repo_policy_json: str | None
     protected_branch_state: str
     protected_branch_reason: str | None
     isolation_state: str

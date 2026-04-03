@@ -21,6 +21,7 @@ from app.services.health import assess_session_health
 from app.services.priority import assess_session_priority
 from app.services.repo_baseline import assess_repo_baseline
 from app.services.repo_policy import assess_repo_policy
+from app.services.repo_policy_rules import parse_repo_policy
 from app.services.repo_risk import assess_repo_risk
 from app.services.completion_state import assess_completion_state
 from app.services.review_readiness import assess_review_readiness
@@ -1085,10 +1086,13 @@ def _refresh_repo_risk(session, active_repo_peers: int, overlapping_paths: list[
 
 
 def _refresh_repo_policy(session) -> None:
+    policy_payload = parse_repo_policy(session.repo_policy_json)
     snapshot = assess_repo_policy(
         branch=session.branch,
         allow_write=session.allow_write,
         worktree_path=session.worktree_path,
+        protected_branches=policy_payload.get("protected_branches"),
+        require_worktree_for_write=bool(policy_payload.get("require_worktree_for_write", False)),
     )
     if (
         snapshot.protected_branch_state == (session.protected_branch_state or "clear")

@@ -19,10 +19,13 @@ def assess_repo_policy(
     branch: str | None,
     allow_write: int,
     worktree_path: str | None,
+    protected_branches: list[str] | None = None,
+    require_worktree_for_write: bool = False,
 ) -> RepoPolicySnapshot:
     normalized_branch = (branch or "").strip().lower()
     writable = bool(allow_write)
-    on_primary = normalized_branch in PRIMARY_BRANCHES
+    branch_set = {item.strip().lower() for item in (protected_branches or PRIMARY_BRANCHES) if item}
+    on_primary = normalized_branch in (branch_set or PRIMARY_BRANCHES)
     isolated = bool(worktree_path)
 
     if writable and on_primary:
@@ -41,9 +44,9 @@ def assess_repo_policy(
     elif isolated:
         isolation_state = "satisfied"
         isolation_reason = "writable session is isolated in a dedicated worktree"
-    elif on_primary:
+    elif require_worktree_for_write or on_primary:
         isolation_state = "required_missing"
-        isolation_reason = "writable primary-branch work should be isolated in a dedicated worktree"
+        isolation_reason = "writable repo work should be isolated in a dedicated worktree"
     else:
         isolation_state = "recommended_missing"
         isolation_reason = "writable repo work is not isolated in a dedicated worktree"

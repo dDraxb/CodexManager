@@ -15,6 +15,7 @@ from app.models.session import ALLOWED_TRANSITIONS, SessionMode, SessionRecord, 
 from app.models.validation_history import ValidationHistoryRecord
 from app.runner.client import get_runner_client
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.repo_policy_rules import match_repo_policy, serialize_repo_policy
 
 PROFILES = {"read-only", "safe-edit", "full-agent"}
 
@@ -137,6 +138,9 @@ def create_managed_session(
     changed_files_preview: list[str] = []
     validation_recipe_id = None
     validation_recipe_json = "[]"
+    repo_policy_id = None
+    repo_policy_label = None
+    repo_policy_json = None
 
     try:
         if create_worktree_for_writes and allow_write:
@@ -153,6 +157,9 @@ def create_managed_session(
             validation_recipe_json = recipe.get("recipe_json", "[]")
     except RunnerError as exc:
         raise SessionError(str(exc)) from exc
+
+    matched_policy = match_repo_policy(repo)
+    repo_policy_id, repo_policy_label, repo_policy_json = serialize_repo_policy(matched_policy)
 
     try:
         branch = branch or client.current_branch(repo, cwd)
@@ -220,6 +227,9 @@ def create_managed_session(
                 "repo_risk_reason": "repo state looks normal",
                 "repo_overlap_count": 0,
                 "repo_overlap_preview": "[]",
+                "repo_policy_id": repo_policy_id,
+                "repo_policy_label": repo_policy_label,
+                "repo_policy_json": repo_policy_json,
                 "protected_branch_state": "clear",
                 "protected_branch_reason": None,
                 "isolation_state": "satisfied" if worktree_path else ("recommended_missing" if allow_write else "not_required"),
@@ -340,6 +350,9 @@ def adopt_session(
     branch = None
     validation_recipe_id = None
     validation_recipe_json = "[]"
+    repo_policy_id = None
+    repo_policy_label = None
+    repo_policy_json = None
     changed_files_preview: list[str] = []
 
     try:
@@ -358,6 +371,8 @@ def adopt_session(
         changed_files_preview = client.changed_files(repo, repo)
     except RunnerError:
         changed_files_preview = []
+    matched_policy = match_repo_policy(repo)
+    repo_policy_id, repo_policy_label, repo_policy_json = serialize_repo_policy(matched_policy)
 
     try:
         with get_conn() as conn:
@@ -415,6 +430,9 @@ def adopt_session(
                 "repo_risk_reason": "repo state looks normal",
                 "repo_overlap_count": 0,
                 "repo_overlap_preview": "[]",
+                "repo_policy_id": repo_policy_id,
+                "repo_policy_label": repo_policy_label,
+                "repo_policy_json": repo_policy_json,
                 "protected_branch_state": "clear",
                 "protected_branch_reason": None,
                 "isolation_state": "not_required",

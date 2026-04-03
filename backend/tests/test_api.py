@@ -184,6 +184,35 @@ def test_api_lists_validation_presets(configured_modules, tmp_path, monkeypatch)
     assert response.json()["presets"][0]["id"] == "strict-node"
 
 
+def test_api_lists_repo_policies(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "repo-policies.json").write_text(
+        json.dumps(
+            {
+                "policies": {
+                    "php-main-guard": {
+                        "label": "PHP Main Guard",
+                        "match": {"path_prefixes": ["/repo/service-a"]},
+                        "rules": {"protected_branches": ["main"], "require_worktree_for_write": True},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get("/api/repo-policies")
+    assert response.status_code == 200
+    assert response.json()["policies"][0]["policy_id"] == "php-main-guard"
+
+
 def test_api_applies_validation_preset(configured_modules, tmp_path, monkeypatch):
     from app.api import server
 

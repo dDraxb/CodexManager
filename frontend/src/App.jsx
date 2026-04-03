@@ -633,6 +633,7 @@ export default function App() {
   const [summary, setSummary] = useState({ total: 0, counts: {}, needsAttention: 0 })
   const [sessions, setSessions] = useState([])
   const [validationPresets, setValidationPresets] = useState([])
+  const [repoPolicies, setRepoPolicies] = useState([])
   const [selectedValidationPreset, setSelectedValidationPreset] = useState('')
   const [recipeDraft, setRecipeDraft] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
@@ -798,15 +799,17 @@ export default function App() {
   async function loadAll() {
     try {
       setError('')
-      const [nextSummary, rows, presetPayload] = await Promise.all([
+      const [nextSummary, rows, presetPayload, repoPolicyPayload] = await Promise.all([
         fetchJson('/api/summary'),
         fetchJson('/api/sessions'),
-        fetchJson('/api/validation-presets')
+        fetchJson('/api/validation-presets'),
+        fetchJson('/api/repo-policies')
       ])
       startTransition(() => {
         setSummary(nextSummary)
         setSessions(rows)
         setValidationPresets(presetPayload.presets || [])
+        setRepoPolicies(repoPolicyPayload.policies || [])
       })
     } catch (err) {
       const message = formatError(err)
@@ -1336,6 +1339,9 @@ export default function App() {
                     {validationPresets.length ? (
                       <p className="muted">Manager validation presets: {validationPresets.map((preset) => preset.id).join(', ')}</p>
                     ) : null}
+                    {repoPolicies.length ? (
+                      <p className="muted">Manager repo policies: {repoPolicies.map((policy) => policy.policy_id).join(', ')}</p>
+                    ) : null}
                   </div>
                   <label className="toggle toggle-inline">
                     <input type="checkbox" checked={createForm.launch} onChange={(event) => onCreateField('launch', event.target.checked)} />
@@ -1414,6 +1420,9 @@ export default function App() {
                     <p className="muted">Use the existing Codex session id and the repo path where that work actually lives on the runner host.</p>
                     {validationPresets.length ? (
                       <p className="muted">Available manager presets: {validationPresets.map((preset) => preset.id).join(', ')}</p>
+                    ) : null}
+                    {repoPolicies.length ? (
+                      <p className="muted">Available manager repo policies: {repoPolicies.map((policy) => policy.policy_id).join(', ')}</p>
                     ) : null}
                   </div>
                 </div>
@@ -1610,6 +1619,10 @@ export default function App() {
                   <span className="overview-value">{isolationStateLabel(detail?.isolation_state || selectedSession.isolation_state)}</span>
                 </div>
                 <div className="overview-item">
+                  <span className="overview-label">Repo policy</span>
+                  <span className="overview-value">{detail?.repo_policy_label || selectedSession.repo_policy_label || 'none'}</span>
+                </div>
+                <div className="overview-item">
                   <span className="overview-label">Start baseline</span>
                   <span className="overview-value">{detail?.dirty_start_state || selectedSession.dirty_start_state || 'clean'}</span>
                 </div>
@@ -1627,6 +1640,12 @@ export default function App() {
                   <div className="overview-item overview-item-wide">
                     <span className="overview-label">Isolation reason</span>
                     <span className="overview-value">{detail?.isolation_reason || selectedSession.isolation_reason}</span>
+                  </div>
+                ) : null}
+                {(detail?.repo_policy_id || selectedSession.repo_policy_id) ? (
+                  <div className="overview-item overview-item-wide">
+                    <span className="overview-label">Policy id</span>
+                    <span className="overview-value">{detail?.repo_policy_id || selectedSession.repo_policy_id}</span>
                   </div>
                 ) : null}
                 {(detail?.dirty_start_reason || selectedSession.dirty_start_reason) ? (
