@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 
 from fastapi.testclient import TestClient
 
@@ -181,6 +182,44 @@ def test_api_lists_validation_presets(configured_modules, tmp_path, monkeypatch)
     response = client.get("/api/validation-presets")
     assert response.status_code == 200
     assert response.json()["presets"][0]["id"] == "strict-node"
+
+
+def test_api_applies_validation_preset(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "validation-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "strict-node": {
+                        "label": "Strict Node",
+                        "checks": [
+                            {"kind": "tests", "label": "Tests", "command": "npm test"},
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    project = tmp_path / "preset-target"
+    project.mkdir()
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/validation-presets/apply",
+        json={"repoPath": str(project), "presetId": "strict-node"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["configPath"].endswith(".codexmgr.validation.json")
+    assert json.loads((project / ".codexmgr.validation.json").read_text(encoding="utf-8")) == {"preset": "strict-node"}
 
 
 def test_api_delete_session(configured_modules, git_repo):

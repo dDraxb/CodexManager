@@ -103,6 +103,17 @@ class LocalRunnerClient(RunnerClient):
         recipe_id, recipe_json = serialize_validation_recipe(recipe)
         return {"recipe_id": recipe_id, "recipe_json": recipe_json}
 
+    def apply_validation_preset(self, repo_path: str, preset_id: str) -> str:
+        root = Path(repo_path)
+        if not root.exists() or not root.is_dir():
+            raise RunnerError(f"working directory is not accessible: {repo_path}")
+        config_path = root / ".codexmgr.validation.json"
+        config_path.write_text(
+            json.dumps({"preset": preset_id}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return str(config_path)
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         return find_recent_codex_session_id(cwd, prompt, since)
 
@@ -224,6 +235,13 @@ class RemoteRunnerClient(RunnerClient):
         payload = self._post("/detect-validation-recipe", {"repo_path": repo_path})
         recipe = payload.get("recipe")
         return dict(recipe) if recipe is not None else None
+
+    def apply_validation_preset(self, repo_path: str, preset_id: str) -> str:
+        payload = self._post(
+            "/apply-validation-preset",
+            {"repo_path": repo_path, "preset_id": preset_id},
+        )
+        return str(payload["config_path"])
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         payload = self._post(

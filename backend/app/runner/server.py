@@ -66,6 +66,11 @@ class BuildCodexLaunchRequest(BaseModel):
     prompt: str | None = None
 
 
+class ValidationPresetApplyRequest(BaseModel):
+    repo_path: str
+    preset_id: str
+
+
 class TmuxSessionRequest(BaseModel):
     session_name: str
 
@@ -182,6 +187,15 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         require_auth(x_runner_api_key)
         recipe = runner_call(lambda: runner.detect_validation_recipe(request.repo_path or ""))
         return {"recipe": recipe}
+
+    @app.post("/apply-validation-preset")
+    def apply_validation_preset_endpoint(
+        request: ValidationPresetApplyRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        config_path = runner_call(lambda: runner.apply_validation_preset(request.repo_path, request.preset_id))
+        return {"config_path": config_path}
 
     @app.post("/codex/find-recent-session")
     def find_recent_codex_session(

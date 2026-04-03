@@ -583,6 +583,7 @@ export default function App() {
   const [summary, setSummary] = useState({ total: 0, counts: {}, needsAttention: 0 })
   const [sessions, setSessions] = useState([])
   const [validationPresets, setValidationPresets] = useState([])
+  const [selectedValidationPreset, setSelectedValidationPreset] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [events, setEvents] = useState([])
@@ -700,6 +701,19 @@ export default function App() {
     const id = setTimeout(() => setToast(null), 3000)
     return () => clearTimeout(id)
   }, [toast])
+
+  useEffect(() => {
+    if (!validationPresets.length) {
+      setSelectedValidationPreset('')
+      return
+    }
+    setSelectedValidationPreset((current) => {
+      if (current && validationPresets.some((preset) => preset.id === current)) {
+        return current
+      }
+      return validationPresets[0].id
+    })
+  }, [validationPresets])
 
   function notify(type, message) {
     setToast({ type, message })
@@ -1089,6 +1103,28 @@ export default function App() {
       (result) => `${label}: ${result.count}`
     )
     await refreshAfterMutation(null)
+  }
+
+  async function applyValidationPresetToSelected() {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    if (!repoPath || !selectedValidationPreset) {
+      notify('error', 'Select a preset and a session with a working directory first')
+      return
+    }
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/validation-presets/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoPath,
+            presetId: selectedValidationPreset
+          })
+        }),
+      (result) => `Applied preset ${selectedValidationPreset} at ${result.configPath}`
+    )
+    if (!payload) return
+    await refreshAfterMutation(selectedSession?.id || null)
   }
 
   const activeCount = sessions.filter((session) => !isArchivedSession(session)).length
@@ -1617,6 +1653,26 @@ export default function App() {
               <>
                 <p className="muted">Validation recipe: {validationRecipe.label}</p>
                 <p className="muted">Recipe source: {validationRecipeSourceLabel(detail?.validation_recipe_id || selectedSession?.validation_recipe_id || null)}</p>
+                {validationPresets.length ? (
+                  <div className="activity-subsection">
+                    <p className="activity-label">Manager presets</p>
+                    <div className="row">
+                      <select value={selectedValidationPreset} onChange={(event) => setSelectedValidationPreset(event.target.value)}>
+                        {validationPresets.map((preset) => (
+                          <option key={preset.id} value={preset.id}>{preset.id}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={applyValidationPresetToSelected}
+                        disabled={!selectedSession?.repo_path || !selectedValidationPreset}
+                      >
+                        Apply preset reference
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {Array.isArray(validationRecipe.checks) && validationRecipe.checks.length ? (
                   <div className="activity-subsection">
                     <p className="activity-label">Expected checks</p>
@@ -1637,7 +1693,29 @@ export default function App() {
                 ) : null}
               </>
             ) : (
-              <p className="muted">Validation recipe: not detected yet</p>
+              <>
+                <p className="muted">Validation recipe: not detected yet</p>
+                {validationPresets.length ? (
+                  <div className="activity-subsection">
+                    <p className="activity-label">Manager presets</p>
+                    <div className="row">
+                      <select value={selectedValidationPreset} onChange={(event) => setSelectedValidationPreset(event.target.value)}>
+                        {validationPresets.map((preset) => (
+                          <option key={preset.id} value={preset.id}>{preset.id}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={applyValidationPresetToSelected}
+                        disabled={!selectedSession?.repo_path || !selectedValidationPreset}
+                      >
+                        Apply preset reference
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
             )}
             <p className="muted">{validationActivityLabel('tests', detail?.test_activity || 'none')}</p>
             <p className="muted">{validationResultDetail('tests', detail?.test_status || 'unknown', detail?.test_status_at)}</p>

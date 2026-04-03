@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sqlite3
 import subprocess
@@ -83,6 +84,10 @@ class RecordingRunner:
     def detect_validation_recipe(self, repo_path: str) -> dict | None:
         self.calls.append(("detect_validation_recipe", repo_path))
         return None
+
+    def apply_validation_preset(self, repo_path: str, preset_id: str) -> str:
+        self.calls.append(("apply_validation_preset", repo_path, preset_id))
+        return f"{repo_path}/.codexmgr.validation.json"
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         self.calls.append(("find_recent_codex_session", cwd, prompt, since))
@@ -213,6 +218,19 @@ def test_local_runner_lists_codex_threads_for_repo_subpaths(configured_modules, 
     threads = runner.list_codex_threads("/repo/service-a", None, limit=10)
 
     assert [thread["id"] for thread in threads] == ["child", "parent"]
+
+
+def test_local_runner_can_apply_validation_preset(configured_modules, tmp_path):
+    from app.runner.client import LocalRunnerClient
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    runner = LocalRunnerClient()
+    config_path = runner.apply_validation_preset(str(repo), "strict-node")
+
+    assert config_path == str(repo / ".codexmgr.validation.json")
+    assert json.loads((repo / ".codexmgr.validation.json").read_text(encoding="utf-8")) == {"preset": "strict-node"}
 
 
 def test_create_managed_session_accepts_runner_owned_repo_paths(configured_modules):

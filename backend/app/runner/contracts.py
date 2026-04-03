@@ -32,6 +32,9 @@ class RunnerClient(Protocol):
     def detect_validation_recipe(self, repo_path: str) -> dict | None:
         """Return validation recipe metadata when the working directory is recognized."""
 
+    def apply_validation_preset(self, repo_path: str, preset_id: str) -> str:
+        """Write repo-local validation config that references a manager preset and return the file path."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

@@ -65,6 +65,11 @@ class CodexSessionLinkRequest(BaseModel):
     codex_updated_at: int | None = Field(default=None, alias="codexUpdatedAt")
 
 
+class ValidationPresetApplyRequest(BaseModel):
+    repo_path: str = Field(alias="repoPath")
+    preset_id: str = Field(alias="presetId")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -130,6 +135,13 @@ def codex_history(query: str | None = None, cwd: str | None = None, limit: int =
 @app.get("/api/validation-presets")
 def validation_presets() -> dict:
     return {"presets": list_manager_validation_presets()}
+
+
+@app.post("/api/validation-presets/apply")
+def apply_validation_preset(request: ValidationPresetApplyRequest) -> dict:
+    client = get_runner_client()
+    config_path = client.apply_validation_preset(request.repo_path, request.preset_id)
+    return {"configPath": config_path}
 
 
 @app.get("/api/codex/resume-points")
