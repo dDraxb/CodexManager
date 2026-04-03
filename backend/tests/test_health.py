@@ -114,3 +114,52 @@ def test_assess_session_health_marks_long_idle_detached_session_monitor(configur
     assert snapshot.label == "monitor"
     assert snapshot.reason == "idle for a long time"
     assert snapshot.evidence == "idle age exceeded twice the monitoring threshold"
+
+
+def test_assess_session_health_surfaces_stale_green_validation(configured_modules):
+    from app.services.health import assess_session_health
+
+    snapshot = assess_session_health(
+        status="idle",
+        work_phase="testing",
+        block_category=None,
+        block_reason=None,
+        repo_risk_label="low",
+        repo_risk_reason="repo state looks normal",
+        test_status="passed",
+        lint_status="unknown",
+        attachment_state="detached",
+        changed_since_green_validation=1,
+        last_green_validation_kind="tests",
+        idle_age_seconds=120,
+        needs_attention=0,
+        idle_threshold_seconds=300,
+    )
+
+    assert snapshot.label == "monitor"
+    assert snapshot.reason == "code changed after last green validation"
+    assert snapshot.evidence == "repo changes no longer match the last green tests snapshot"
+
+
+def test_assess_session_health_surfaces_missing_recipe_checks(configured_modules):
+    from app.services.health import assess_session_health
+
+    snapshot = assess_session_health(
+        status="idle",
+        work_phase="testing",
+        block_category=None,
+        block_reason=None,
+        repo_risk_label="low",
+        repo_risk_reason="repo state looks normal",
+        test_status="passed",
+        lint_status="unknown",
+        attachment_state="detached",
+        missing_validation_checks_count=2,
+        idle_age_seconds=120,
+        needs_attention=0,
+        idle_threshold_seconds=300,
+    )
+
+    assert snapshot.label == "monitor"
+    assert snapshot.reason == "expected validation checks missing"
+    assert snapshot.evidence == "the recipe still has 2 unobserved required checks"

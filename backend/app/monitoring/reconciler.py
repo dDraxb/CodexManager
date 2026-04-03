@@ -20,7 +20,9 @@ from app.services.sessions import (
 from app.services.health import assess_session_health
 from app.services.priority import assess_session_priority
 from app.services.repo_risk import assess_repo_risk
+from app.services.review_readiness import assess_review_readiness
 from app.services.validation import STATUS_FAILED, analyze_validation
+from app.services.validation_recipe import validation_policy_state
 from app.services.work_phase import (
     PHASE_UNKNOWN,
     infer_work_phase,
@@ -135,6 +137,85 @@ def _record_validation_state(
                 build_status,
                 build_status_at,
                 1 if needs_attention else 0,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _record_validation_baseline(
+    session_id: str,
+    *,
+    kind: str | None,
+    timestamp: str | None,
+    changed_files_count: int,
+    changed_files_preview: str,
+    changed_since: bool,
+    changed_reason: str | None,
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET last_green_validation_kind = ?, last_green_validation_at = ?,
+                last_green_changed_files_count = ?, last_green_changed_files_preview = ?,
+                changed_since_green_validation = ?, changed_since_green_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                kind,
+                timestamp,
+                changed_files_count,
+                changed_files_preview,
+                1 if changed_since else 0,
+                changed_reason,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _record_validation_coverage(
+    session_id: str,
+    *,
+    missing_checks_json: str,
+    optional_checks_json: str,
+    policy_state: str,
+    policy_reason: str | None,
+    coverage_reason: str | None,
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET missing_validation_checks_json = ?, optional_validation_checks_json = ?,
+                validation_policy_state = ?, validation_policy_reason = ?,
+                validation_coverage_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                missing_checks_json,
+                optional_checks_json,
+                policy_state,
+                policy_reason,
+                coverage_reason,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _record_review_readiness(session_id: str, *, state: str, reason: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET review_readiness_state = ?, review_readiness_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                state,
+                reason,
                 datetime.now(UTC).replace(microsecond=0).isoformat(),
                 session_id,
             ),
@@ -342,6 +423,9 @@ def _backfill_validation_from_log(session) -> tuple[str, str, str | None, str, s
 
 
 def _refresh_validation_state(session, lines: list[str]) -> None:
+    test_status_changed = False
+    lint_status_changed = False
+    build_status_changed = False
     snapshot = analyze_validation(lines)
     timestamp = datetime.now(UTC).replace(microsecond=0).isoformat()
     (
@@ -423,6 +507,7 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.test_activity = effective_test_activity
     if effective_test_status != session.test_status:
+        test_status_changed = True
         _record_validation_transition(
             session.id,
             kind="tests",
@@ -458,6 +543,7 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.lint_activity = effective_lint_activity
     if effective_lint_status != session.lint_status:
+        lint_status_changed = True
         _record_validation_transition(
             session.id,
             kind="lint",
@@ -493,6 +579,7 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.build_activity = effective_build_activity
     if effective_build_status != session.build_status:
+        build_status_changed = True
         _record_validation_transition(
             session.id,
             kind="build",
@@ -510,7 +597,174 @@ def _refresh_validation_state(session, lines: list[str]) -> None:
         )
         session.build_status = effective_build_status
         session.build_status_at = effective_build_status_at
+    baseline_kind = session.last_green_validation_kind
+    baseline_at = session.last_green_validation_at
+    baseline_count = session.last_green_changed_files_count
+    baseline_preview = session.last_green_changed_files_preview or "[]"
+    if effective_test_status == "passed" and test_status_changed:
+        baseline_kind = "tests"
+        baseline_at = effective_test_status_at or timestamp
+        baseline_count = session.changed_files_count
+        baseline_preview = session.changed_files_preview or "[]"
+    elif effective_lint_status == "passed" and lint_status_changed:
+        baseline_kind = "lint"
+        baseline_at = effective_lint_status_at or timestamp
+        baseline_count = session.changed_files_count
+        baseline_preview = session.changed_files_preview or "[]"
+    elif effective_build_status == "passed" and build_status_changed:
+        baseline_kind = "build"
+        baseline_at = effective_build_status_at or timestamp
+        baseline_count = session.changed_files_count
+        baseline_preview = session.changed_files_preview or "[]"
+
+    changed_since_green = bool(session.changed_since_green_validation)
+    drift_reason = session.changed_since_green_reason
+    baseline_changed = (
+        baseline_kind != session.last_green_validation_kind
+        or baseline_at != session.last_green_validation_at
+        or baseline_count != session.last_green_changed_files_count
+        or baseline_preview != (session.last_green_changed_files_preview or "[]")
+    )
+    if baseline_changed:
+        _record_validation_baseline(
+            session.id,
+            kind=baseline_kind,
+            timestamp=baseline_at,
+            changed_files_count=baseline_count,
+            changed_files_preview=baseline_preview,
+            changed_since=changed_since_green,
+            changed_reason=drift_reason,
+        )
+        session.last_green_validation_kind = baseline_kind
+        session.last_green_validation_at = baseline_at
+        session.last_green_changed_files_count = baseline_count
+        session.last_green_changed_files_preview = baseline_preview
     session.needs_attention = 1 if needs_attention else 0
+
+
+def _refresh_validation_drift(session) -> None:
+    if not session.last_green_validation_at:
+        next_changed_since = False
+        next_reason = None
+    else:
+        next_changed_since = not (
+            session.changed_files_count == session.last_green_changed_files_count
+            and (session.changed_files_preview or "[]") == (session.last_green_changed_files_preview or "[]")
+        )
+        if next_changed_since and session.changed_files_count > 0:
+            next_reason = "code changed since the last green validation"
+        else:
+            next_changed_since = False
+            next_reason = None
+
+    if (
+        next_changed_since == bool(session.changed_since_green_validation)
+        and next_reason == session.changed_since_green_reason
+    ):
+        return
+
+    _record_validation_baseline(
+        session.id,
+        kind=session.last_green_validation_kind,
+        timestamp=session.last_green_validation_at,
+        changed_files_count=session.last_green_changed_files_count,
+        changed_files_preview=session.last_green_changed_files_preview or "[]",
+        changed_since=next_changed_since,
+        changed_reason=next_reason,
+    )
+    _event(
+        session.id,
+        "validation_drift_changed",
+        "Validation drift detected" if next_changed_since else "Validation drift cleared",
+        {
+            "changed_since_green_validation": next_changed_since,
+            "changed_since_green_reason": next_reason,
+            "last_green_validation_kind": session.last_green_validation_kind,
+            "last_green_validation_at": session.last_green_validation_at,
+        },
+    )
+    session.changed_since_green_validation = 1 if next_changed_since else 0
+    session.changed_since_green_reason = next_reason
+
+
+def _refresh_validation_coverage(session) -> None:
+    policy_state, policy_reason, missing_checks, optional_checks = validation_policy_state(
+        session.validation_recipe_json,
+        test_status=session.test_status,
+        lint_status=session.lint_status,
+        build_status=session.build_status,
+    )
+    if missing_checks and session.changed_files_count > 0:
+        coverage_reason = f"required recipe checks not yet observed: {', '.join(missing_checks)}"
+    elif missing_checks:
+        coverage_reason = f"recipe expects checks not yet observed: {', '.join(missing_checks)}"
+    elif optional_checks:
+        coverage_reason = f"only optional checks remain: {', '.join(optional_checks)}"
+    else:
+        coverage_reason = "all expected recipe checks have been observed" if session.validation_recipe_id else None
+    missing_checks_json = json.dumps(missing_checks)
+    optional_checks_json = json.dumps(optional_checks)
+    if (
+        missing_checks_json == (session.missing_validation_checks_json or "[]")
+        and optional_checks_json == (session.optional_validation_checks_json or "[]")
+        and policy_state == (session.validation_policy_state or "unknown")
+        and policy_reason == session.validation_policy_reason
+        and coverage_reason == session.validation_coverage_reason
+    ):
+        return
+    _record_validation_coverage(
+        session.id,
+        missing_checks_json=missing_checks_json,
+        optional_checks_json=optional_checks_json,
+        policy_state=policy_state,
+        policy_reason=policy_reason,
+        coverage_reason=coverage_reason,
+    )
+    _event(
+        session.id,
+        "validation_coverage_changed",
+        "Validation recipe coverage updated",
+        {
+            "missing_checks": missing_checks,
+            "optional_checks": optional_checks,
+            "validation_policy_state": policy_state,
+            "validation_policy_reason": policy_reason,
+            "validation_coverage_reason": coverage_reason,
+        },
+    )
+    session.missing_validation_checks_json = missing_checks_json
+    session.optional_validation_checks_json = optional_checks_json
+    session.validation_policy_state = policy_state
+    session.validation_policy_reason = policy_reason
+    session.validation_coverage_reason = coverage_reason
+
+
+def _refresh_review_readiness(session) -> None:
+    snapshot = assess_review_readiness(
+        status=session.status,
+        validation_policy_state=session.validation_policy_state,
+        changed_since_green_validation=session.changed_since_green_validation,
+        repo_risk_label=session.repo_risk_label,
+        repo_risk_reason=session.repo_risk_reason,
+        block_reason=session.block_reason,
+    )
+    if (
+        snapshot.state == (session.review_readiness_state or "unknown")
+        and snapshot.reason == session.review_readiness_reason
+    ):
+        return
+    _record_review_readiness(session.id, state=snapshot.state, reason=snapshot.reason)
+    _event(
+        session.id,
+        "review_readiness_changed",
+        f"Review readiness -> {snapshot.state}",
+        {
+            "review_readiness_state": snapshot.state,
+            "review_readiness_reason": snapshot.reason,
+        },
+    )
+    session.review_readiness_state = snapshot.state
+    session.review_readiness_reason = snapshot.reason
 
 
 def _refresh_work_phase(session, lines: list[str]) -> None:
@@ -588,6 +842,9 @@ def _refresh_health(session, idle_age: int | None, idle_threshold_seconds: int) 
         test_status=session.test_status,
         lint_status=session.lint_status,
         attachment_state=session.attachment_state,
+        changed_since_green_validation=session.changed_since_green_validation,
+        last_green_validation_kind=session.last_green_validation_kind,
+        missing_validation_checks_count=len(json.loads(session.missing_validation_checks_json or "[]")),
         idle_age_seconds=idle_age,
         needs_attention=session.needs_attention,
         idle_threshold_seconds=idle_threshold_seconds,
@@ -629,6 +886,9 @@ def _refresh_priority(session, idle_age: int | None, idle_threshold_seconds: int
         test_status=session.test_status,
         lint_status=session.lint_status,
         attachment_state=session.attachment_state,
+        changed_since_green_validation=session.changed_since_green_validation,
+        last_green_validation_kind=session.last_green_validation_kind,
+        missing_validation_checks_count=len(json.loads(session.missing_validation_checks_json or "[]")),
         idle_age_seconds=idle_age,
         needs_attention=session.needs_attention,
         idle_threshold_seconds=idle_threshold_seconds,
@@ -908,7 +1168,10 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
 
         if lines:
             _refresh_validation_state(session, lines)
+        _refresh_validation_drift(session)
+        _refresh_validation_coverage(session)
         _refresh_work_phase(session, lines)
+        _refresh_review_readiness(session)
         _refresh_codex_session_link(session, client)
         if idle_age is None:
             _refresh_health(session, None, settings.monitor_idle_seconds)

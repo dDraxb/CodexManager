@@ -53,9 +53,12 @@ def assess_session_priority(
     test_status: str | None,
     lint_status: str | None,
     attachment_state: str | None,
-    idle_age_seconds: int | None,
-    needs_attention: int,
-    idle_threshold_seconds: int,
+    changed_since_green_validation: int = 0,
+    last_green_validation_kind: str | None = None,
+    missing_validation_checks_count: int = 0,
+    idle_age_seconds: int | None = None,
+    needs_attention: int = 0,
+    idle_threshold_seconds: int = 300,
 ) -> PrioritySnapshot:
     score = 10
     reason = "stable background session"
@@ -70,6 +73,11 @@ def assess_session_priority(
         return PrioritySnapshot(89, repo_risk_reason, "repo risk detection found a high-risk execution context")
     if repo_risk_label == "medium":
         return PrioritySnapshot(72, repo_risk_reason, "repo risk detection found a medium-risk execution context")
+    if changed_since_green_validation:
+        kind = last_green_validation_kind or "validation"
+        return PrioritySnapshot(74, "validation baseline is stale", f"repo changes no longer match the last green {kind} snapshot")
+    if missing_validation_checks_count > 0:
+        return PrioritySnapshot(66, "expected validation checks missing", f"the recipe still has {missing_validation_checks_count} unobserved required checks")
     if status == SessionStatus.WAITING_INPUT.value:
         return PrioritySnapshot(92, "waiting for user input", "the live session is waiting on an external response")
     if test_status == STATUS_FAILED or lint_status == STATUS_FAILED:

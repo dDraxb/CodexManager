@@ -61,9 +61,12 @@ def assess_session_health(
     test_status: str | None,
     lint_status: str | None,
     attachment_state: str | None,
-    idle_age_seconds: int | None,
-    needs_attention: int,
-    idle_threshold_seconds: int,
+    changed_since_green_validation: int = 0,
+    last_green_validation_kind: str | None = None,
+    missing_validation_checks_count: int = 0,
+    idle_age_seconds: int | None = None,
+    needs_attention: int = 0,
+    idle_threshold_seconds: int = 300,
 ) -> HealthSnapshot:
     score = 90
     reason = "session looks healthy"
@@ -88,6 +91,15 @@ def assess_session_health(
         score = 58
         reason = repo_risk_reason
         evidence = "repo risk detection found a medium-risk execution context"
+    elif changed_since_green_validation:
+        score = 57
+        kind = last_green_validation_kind or "validation"
+        reason = "code changed after last green validation"
+        evidence = f"repo changes no longer match the last green {kind} snapshot"
+    elif missing_validation_checks_count > 0:
+        score = 64
+        reason = "expected validation checks missing"
+        evidence = f"the recipe still has {missing_validation_checks_count} unobserved required checks"
     elif status == SessionStatus.WAITING_INPUT.value:
         score = 45
         reason = "awaiting user input"

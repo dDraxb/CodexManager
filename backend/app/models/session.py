@@ -126,6 +126,19 @@ class SessionRecord:
     repo_overlap_preview: str
     validation_recipe_id: str | None
     validation_recipe_json: str
+    missing_validation_checks_json: str
+    optional_validation_checks_json: str
+    validation_policy_state: str
+    validation_policy_reason: str | None
+    review_readiness_state: str
+    review_readiness_reason: str | None
+    validation_coverage_reason: str | None
+    last_green_validation_kind: str | None
+    last_green_validation_at: str | None
+    last_green_changed_files_count: int
+    last_green_changed_files_preview: str
+    changed_since_green_validation: int
+    changed_since_green_reason: str | None
     test_activity: str | None
     test_status: str | None
     test_status_at: str | None

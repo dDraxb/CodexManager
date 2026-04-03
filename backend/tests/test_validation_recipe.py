@@ -45,3 +45,127 @@ line-length = 100
     assert recipe is not None
     assert recipe.recipe_id == "python"
     assert [check.kind for check in recipe.checks] == ["tests", "lint", "build"]
+
+
+def test_detect_validation_recipe_uses_repo_local_override(tmp_path):
+    from app.services.validation_recipe import detect_validation_recipe
+
+    project = tmp_path / "custom-app"
+    project.mkdir()
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest", "lint": "eslint .", "build": "vite build"}}),
+        encoding="utf-8",
+    )
+    (project / ".codexmgr.validation.json").write_text(
+        json.dumps(
+            {
+                "label": "Repo policy",
+                "checks": [
+                    {"kind": "tests", "label": "Smoke", "command": "./bin/smoke_test.sh"},
+                    {"kind": "build", "label": "Package", "command": "npm run build", "required": False},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recipe = detect_validation_recipe(str(project))
+
+    assert recipe is not None
+    assert recipe.recipe_id == "custom-json"
+    assert recipe.label == "Repo policy"
+    assert [check.command for check in recipe.checks] == ["./bin/smoke_test.sh", "npm run build"]
+    assert [check.required for check in recipe.checks] == [True, False]
+
+
+def test_detect_validation_recipe_falls_back_when_override_invalid(tmp_path):
+    from app.services.validation_recipe import detect_validation_recipe
+
+    project = tmp_path / "fallback-app"
+    project.mkdir()
+    (project / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest", "lint": "eslint ."}}),
+        encoding="utf-8",
+    )
+    (project / ".codexmgr.validation.json").write_text(
+        json.dumps({"label": "Broken config", "checks": [{"kind": "tests"}]}),
+        encoding="utf-8",
+    )
+
+    recipe = detect_validation_recipe(str(project))
+
+    assert recipe is not None
+    assert recipe.recipe_id == "node"
+    assert [check.kind for check in recipe.checks] == ["tests", "lint"]
+
+
+def test_missing_validation_checks_ignores_optional_checks():
+    from app.services.validation_recipe import missing_validation_checks
+
+    payload = json.dumps(
+        {
+            "label": "Repo policy",
+            "checks": [
+                {"kind": "tests", "label": "Tests", "command": "pytest"},
+                {"kind": "lint", "label": "Lint", "command": "ruff check ."},
+                {"kind": "build", "label": "Build", "command": "python -m build", "required": False},
+            ],
+        }
+    )
+
+    missing = missing_validation_checks(
+        payload,
+        test_status="passed",
+        lint_status="unknown",
+        build_status="unknown",
+    )
+
+    assert missing == ["lint"]
+
+
+def test_validation_policy_state_distinguishes_required_and_optional_checks():
+    from app.services.validation_recipe import validation_policy_state
+
+    payload = json.dumps(
+        {
+            "label": "Repo policy",
+            "checks": [
+                {"kind": "tests", "label": "Tests", "command": "pytest"},
+                {"kind": "lint", "label": "Lint", "command": "ruff check ."},
+                {"kind": "build", "label": "Build", "command": "python -m build", "required": False},
+            ],
+        }
+    )
+
+    state, reason, missing, optional = validation_policy_state(
+        payload,
+        test_status="passed",
+        lint_status="unknown",
+        build_status="unknown",
+    )
+    assert state == "required_missing"
+    assert reason == "required checks still missing: lint"
+    assert missing == ["lint"]
+    assert optional == ["build"]
+
+    state, reason, missing, optional = validation_policy_state(
+        payload,
+        test_status="passed",
+        lint_status="passed",
+        build_status="unknown",
+    )
+    assert state == "optional_pending"
+    assert reason == "optional checks still pending: build"
+    assert missing == []
+    assert optional == ["build"]
+
+    state, reason, missing, optional = validation_policy_state(
+        payload,
+        test_status="passed",
+        lint_status="passed",
+        build_status="passed",
+    )
+    assert state == "ready"
+    assert reason == "all required validation checks have been observed"
+    assert missing == []
+    assert optional == []

@@ -162,6 +162,15 @@ function validationHistoryEntryLabel(entry) {
   return `${noun} updated`
 }
 
+function latestGreenValidationLabel(session) {
+  if (!session?.last_green_validation_at) return 'No green validation baseline recorded yet'
+  const kind = session.last_green_validation_kind || 'validation'
+  const formatted = formatValidationTimestamp(session.last_green_validation_at)
+  return formatted
+    ? `Latest green ${kind}: ${formatted}`
+    : `Latest green ${kind}: ${session.last_green_validation_at}`
+}
+
 function blockCategoryLabel(category) {
   const map = {
     approval: 'Approval',
@@ -294,6 +303,24 @@ function stateTimelineEntry(event) {
       detail: null
     }
   }
+  if (event.type === 'validation_drift_changed') {
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      label: 'Validation drift',
+      value: event.message,
+      detail: metadata.changed_since_green_reason || null
+    }
+  }
+  if (event.type === 'review_readiness_changed') {
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      label: 'Review readiness',
+      value: reviewReadinessLabel(metadata.review_readiness_state || event.message.replace('Review readiness -> ', '').trim()),
+      detail: metadata.review_readiness_reason || null
+    }
+  }
   if (event.type === 'health_changed') {
     return {
       id: event.id,
@@ -363,6 +390,32 @@ function overlapPreviewText(count, preview) {
   return shown
 }
 
+function missingValidationChecksText(rawValue) {
+  const items = parseJsonList(rawValue)
+  if (!items.length) return 'All expected recipe checks have been observed'
+  return `Missing recipe checks: ${items.join(', ')}`
+}
+
+function validationPolicyLabel(state) {
+  const map = {
+    ready: 'Review-ready validation baseline',
+    required_missing: 'Required validation checks missing',
+    optional_pending: 'Optional validation checks pending',
+    unknown: 'Validation policy not established'
+  }
+  return map[state] || 'Validation policy not established'
+}
+
+function reviewReadinessLabel(state) {
+  const map = {
+    ready: 'Review-ready',
+    ready_with_gaps: 'Review-ready with optional gaps',
+    not_ready: 'Not review-ready',
+    unknown: 'Review readiness not established'
+  }
+  return map[state] || 'Review readiness not established'
+}
+
 function operationalSummary(session) {
   if (!session) return 'No session selected.'
   const parts = []
@@ -373,6 +426,12 @@ function operationalSummary(session) {
   }
   if (session.health_reason) {
     parts.push(`health says ${session.health_reason}`)
+  }
+  if (session.review_readiness_state && session.review_readiness_state !== 'unknown') {
+    parts.push(`review readiness is ${reviewReadinessLabel(session.review_readiness_state).toLowerCase()}`)
+  }
+  if (session.changed_since_green_validation) {
+    parts.push('code changed after the last green validation')
   }
   if (session.priority_reason && session.priority_reason !== 'stable background session' && session.priority_reason !== 'priority not established') {
     parts.push(`priority is ${session.priority_reason}`)
@@ -1504,8 +1563,26 @@ export default function App() {
             <p className="muted">{validationResultDetail('tests', detail?.test_status || 'unknown', detail?.test_status_at)}</p>
             <p className="muted">{validationActivityLabel('lint', detail?.lint_activity || 'none')}</p>
             <p className="muted">{validationResultDetail('lint', detail?.lint_status || 'unknown', detail?.lint_status_at)}</p>
-               <p className="muted">{validationActivityLabel('build', detail?.build_activity || 'none')}</p>
+            <p className="muted">{validationActivityLabel('build', detail?.build_activity || 'none')}</p>
             <p className="muted">{validationResultDetail('build', detail?.build_status || 'unknown', detail?.build_status_at)}</p>
+            <p className="muted">{latestGreenValidationLabel(detail || selectedSession)}</p>
+            <p className="muted">
+              {(detail?.changed_since_green_validation || selectedSession?.changed_since_green_validation)
+                ? (detail?.changed_since_green_reason || selectedSession?.changed_since_green_reason || 'Code changed since the last green validation')
+                : 'Repo still matches the last green validation snapshot'}
+            </p>
+            <p className="muted">
+              {validationPolicyLabel(detail?.validation_policy_state || selectedSession?.validation_policy_state || 'unknown')}
+            </p>
+            <p className="muted">
+              {detail?.validation_policy_reason || selectedSession?.validation_policy_reason || detail?.validation_coverage_reason || selectedSession?.validation_coverage_reason || missingValidationChecksText(detail?.missing_validation_checks_json || selectedSession?.missing_validation_checks_json)}
+            </p>
+            <p className="muted">
+              {reviewReadinessLabel(detail?.review_readiness_state || selectedSession?.review_readiness_state || 'unknown')}
+            </p>
+            <p className="muted">
+              {detail?.review_readiness_reason || selectedSession?.review_readiness_reason || 'Review readiness has not been established yet'}
+            </p>
             <div className="activity-subsection">
               <p className="activity-label">Recent validation runs</p>
               {!validationHistory.length ? <p className="muted">No structured validation history recorded yet.</p> : null}

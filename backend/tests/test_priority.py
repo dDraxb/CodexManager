@@ -95,3 +95,54 @@ def test_assess_session_priority_elevates_waiting_input_sessions(configured_modu
     assert snapshot.score >= 90
     assert snapshot.reason == "waiting for user input"
     assert snapshot.evidence == "the live session is waiting on an external response"
+
+
+def test_assess_session_priority_elevates_stale_green_validation(configured_modules):
+    from app.services.priority import assess_session_priority
+
+    snapshot = assess_session_priority(
+        status="idle",
+        work_phase="testing",
+        block_category=None,
+        block_reason=None,
+        repo_risk_label="low",
+        repo_risk_reason="repo state looks normal",
+        health_label="monitor",
+        test_status="passed",
+        lint_status="unknown",
+        attachment_state="detached",
+        changed_since_green_validation=1,
+        last_green_validation_kind="tests",
+        idle_age_seconds=120,
+        needs_attention=0,
+        idle_threshold_seconds=300,
+    )
+
+    assert snapshot.score >= 74
+    assert snapshot.reason == "validation baseline is stale"
+    assert snapshot.evidence == "repo changes no longer match the last green tests snapshot"
+
+
+def test_assess_session_priority_elevates_missing_recipe_checks(configured_modules):
+    from app.services.priority import assess_session_priority
+
+    snapshot = assess_session_priority(
+        status="idle",
+        work_phase="testing",
+        block_category=None,
+        block_reason=None,
+        repo_risk_label="low",
+        repo_risk_reason="repo state looks normal",
+        health_label="monitor",
+        test_status="passed",
+        lint_status="unknown",
+        attachment_state="detached",
+        missing_validation_checks_count=2,
+        idle_age_seconds=120,
+        needs_attention=0,
+        idle_threshold_seconds=300,
+    )
+
+    assert snapshot.score >= 66
+    assert snapshot.reason == "expected validation checks missing"
+    assert snapshot.evidence == "the recipe still has 2 unobserved required checks"

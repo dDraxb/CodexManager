@@ -83,6 +83,19 @@ def init_db() -> None:
               repo_overlap_preview TEXT NOT NULL DEFAULT '[]',
               validation_recipe_id TEXT,
               validation_recipe_json TEXT NOT NULL DEFAULT '[]',
+              missing_validation_checks_json TEXT NOT NULL DEFAULT '[]',
+              optional_validation_checks_json TEXT NOT NULL DEFAULT '[]',
+              validation_policy_state TEXT NOT NULL DEFAULT 'unknown',
+              validation_policy_reason TEXT,
+              review_readiness_state TEXT NOT NULL DEFAULT 'unknown',
+              review_readiness_reason TEXT,
+              validation_coverage_reason TEXT,
+              last_green_validation_kind TEXT,
+              last_green_validation_at TEXT,
+              last_green_changed_files_count INTEGER NOT NULL DEFAULT 0,
+              last_green_changed_files_preview TEXT NOT NULL DEFAULT '[]',
+              changed_since_green_validation INTEGER NOT NULL DEFAULT 0,
+              changed_since_green_reason TEXT,
               test_activity TEXT NOT NULL DEFAULT 'none',
               test_status TEXT,
               test_status_at TEXT,
@@ -179,6 +192,19 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
         ("repo_overlap_preview", "ALTER TABLE sessions ADD COLUMN repo_overlap_preview TEXT NOT NULL DEFAULT '[]'"),
         ("validation_recipe_id", "ALTER TABLE sessions ADD COLUMN validation_recipe_id TEXT"),
         ("validation_recipe_json", "ALTER TABLE sessions ADD COLUMN validation_recipe_json TEXT NOT NULL DEFAULT '[]'"),
+        ("missing_validation_checks_json", "ALTER TABLE sessions ADD COLUMN missing_validation_checks_json TEXT NOT NULL DEFAULT '[]'"),
+        ("optional_validation_checks_json", "ALTER TABLE sessions ADD COLUMN optional_validation_checks_json TEXT NOT NULL DEFAULT '[]'"),
+        ("validation_policy_state", "ALTER TABLE sessions ADD COLUMN validation_policy_state TEXT NOT NULL DEFAULT 'unknown'"),
+        ("validation_policy_reason", "ALTER TABLE sessions ADD COLUMN validation_policy_reason TEXT"),
+        ("review_readiness_state", "ALTER TABLE sessions ADD COLUMN review_readiness_state TEXT NOT NULL DEFAULT 'unknown'"),
+        ("review_readiness_reason", "ALTER TABLE sessions ADD COLUMN review_readiness_reason TEXT"),
+        ("validation_coverage_reason", "ALTER TABLE sessions ADD COLUMN validation_coverage_reason TEXT"),
+        ("last_green_validation_kind", "ALTER TABLE sessions ADD COLUMN last_green_validation_kind TEXT"),
+        ("last_green_validation_at", "ALTER TABLE sessions ADD COLUMN last_green_validation_at TEXT"),
+        ("last_green_changed_files_count", "ALTER TABLE sessions ADD COLUMN last_green_changed_files_count INTEGER NOT NULL DEFAULT 0"),
+        ("last_green_changed_files_preview", "ALTER TABLE sessions ADD COLUMN last_green_changed_files_preview TEXT NOT NULL DEFAULT '[]'"),
+        ("changed_since_green_validation", "ALTER TABLE sessions ADD COLUMN changed_since_green_validation INTEGER NOT NULL DEFAULT 0"),
+        ("changed_since_green_reason", "ALTER TABLE sessions ADD COLUMN changed_since_green_reason TEXT"),
         ("test_activity", "ALTER TABLE sessions ADD COLUMN test_activity TEXT NOT NULL DEFAULT 'none'"),
         ("test_status_at", "ALTER TABLE sessions ADD COLUMN test_status_at TEXT"),
         ("observability", "ALTER TABLE sessions ADD COLUMN observability TEXT NOT NULL DEFAULT 'full'"),
@@ -200,7 +226,11 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
     ]
     for column, statement in alter_statements:
         if column not in existing:
-            conn.execute(statement)
+            try:
+                conn.execute(statement)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
     conn.execute(
-        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), validation_recipe_json = COALESCE(validation_recipe_json, '[]'), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none'), build_activity = COALESCE(build_activity, 'none')"
+        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), validation_recipe_json = COALESCE(validation_recipe_json, '[]'), missing_validation_checks_json = COALESCE(missing_validation_checks_json, '[]'), optional_validation_checks_json = COALESCE(optional_validation_checks_json, '[]'), validation_policy_state = COALESCE(validation_policy_state, 'unknown'), review_readiness_state = COALESCE(review_readiness_state, 'unknown'), last_green_changed_files_count = COALESCE(last_green_changed_files_count, 0), last_green_changed_files_preview = COALESCE(last_green_changed_files_preview, '[]'), changed_since_green_validation = COALESCE(changed_since_green_validation, 0), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none'), build_activity = COALESCE(build_activity, 'none')"
     )

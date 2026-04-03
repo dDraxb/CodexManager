@@ -11,6 +11,7 @@ class ValidationCheck:
     kind: str
     label: str
     command: str
+    required: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,9 @@ class ValidationRecipe:
     recipe_id: str
     label: str
     checks: list[ValidationCheck]
+
+
+ALLOWED_KINDS = {"tests", "lint", "build"}
 
 
 def _load_json(path: Path) -> dict:
@@ -32,6 +36,56 @@ def _load_toml(path: Path) -> dict:
         return tomllib.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def _load_recipe_payload(raw_recipe_json: str | None) -> dict:
+    if not raw_recipe_json:
+        return {}
+    try:
+        payload = json.loads(raw_recipe_json)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _normalize_custom_recipe(payload: dict, recipe_id: str) -> ValidationRecipe | None:
+    checks_payload = payload.get("checks")
+    if not isinstance(checks_payload, list) or not checks_payload:
+        return None
+
+    checks: list[ValidationCheck] = []
+    for item in checks_payload:
+        if not isinstance(item, dict):
+            return None
+        kind = str(item.get("kind") or "").strip().lower()
+        command = str(item.get("command") or "").strip()
+        label = str(item.get("label") or kind.title()).strip()
+        required = bool(item.get("required", True))
+        if kind not in ALLOWED_KINDS or not command:
+            return None
+        checks.append(ValidationCheck(kind, label, command, required=required))
+
+    label = str(payload.get("label") or "Custom validation").strip()
+    return ValidationRecipe(recipe_id, label, checks)
+
+
+def _custom_recipe(root: Path) -> ValidationRecipe | None:
+    candidates = [
+        (root / ".codexmgr" / "validation.json", _load_json, "custom-json"),
+        (root / ".codexmgr.validation.json", _load_json, "custom-json"),
+        (root / ".codexmgr" / "validation.toml", _load_toml, "custom-toml"),
+        (root / ".codexmgr.validation.toml", _load_toml, "custom-toml"),
+    ]
+    for path, loader, recipe_id in candidates:
+        if not path.exists():
+            continue
+        payload = loader(path)
+        if not isinstance(payload, dict):
+            continue
+        recipe = _normalize_custom_recipe(payload, recipe_id)
+        if recipe is not None:
+            return recipe
+    return None
 
 
 def _node_recipe(root: Path) -> ValidationRecipe | None:
@@ -115,11 +169,100 @@ def detect_validation_recipe(repo_path: str) -> ValidationRecipe | None:
     root = Path(repo_path)
     if not root.exists() or not root.is_dir():
         return None
+    custom = _custom_recipe(root)
+    if custom is not None:
+        return custom
     for detector in (_node_recipe, _python_recipe, _rust_recipe, _go_recipe, _php_recipe):
         recipe = detector(root)
         if recipe is not None:
             return recipe
     return None
+
+
+def missing_validation_checks(
+    raw_recipe_json: str | None,
+    *,
+    test_status: str | None,
+    lint_status: str | None,
+    build_status: str | None,
+) -> list[str]:
+    payload = _load_recipe_payload(raw_recipe_json)
+    checks = payload.get("checks")
+    if not isinstance(checks, list):
+        return []
+
+    observed = {
+        "tests": test_status if test_status and test_status != "unknown" else None,
+        "lint": lint_status if lint_status and lint_status != "unknown" else None,
+        "build": build_status if build_status and build_status != "unknown" else None,
+    }
+    missing: list[str] = []
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").strip().lower()
+        required = bool(item.get("required", True))
+        if required and kind in ALLOWED_KINDS and observed.get(kind) is None and kind not in missing:
+            missing.append(kind)
+    return missing
+
+
+def optional_pending_validation_checks(
+    raw_recipe_json: str | None,
+    *,
+    test_status: str | None,
+    lint_status: str | None,
+    build_status: str | None,
+) -> list[str]:
+    payload = _load_recipe_payload(raw_recipe_json)
+    checks = payload.get("checks")
+    if not isinstance(checks, list):
+        return []
+
+    observed = {
+        "tests": test_status if test_status and test_status != "unknown" else None,
+        "lint": lint_status if lint_status and lint_status != "unknown" else None,
+        "build": build_status if build_status and build_status != "unknown" else None,
+    }
+    pending: list[str] = []
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").strip().lower()
+        required = bool(item.get("required", True))
+        if not required and kind in ALLOWED_KINDS and observed.get(kind) is None and kind not in pending:
+            pending.append(kind)
+    return pending
+
+
+def validation_policy_state(
+    raw_recipe_json: str | None,
+    *,
+    test_status: str | None,
+    lint_status: str | None,
+    build_status: str | None,
+) -> tuple[str, str | None, list[str], list[str]]:
+    required_missing = missing_validation_checks(
+        raw_recipe_json,
+        test_status=test_status,
+        lint_status=lint_status,
+        build_status=build_status,
+    )
+    optional_pending = optional_pending_validation_checks(
+        raw_recipe_json,
+        test_status=test_status,
+        lint_status=lint_status,
+        build_status=build_status,
+    )
+    payload = _load_recipe_payload(raw_recipe_json)
+    checks = payload.get("checks")
+    if not isinstance(checks, list) or not checks:
+        return "unknown", None, required_missing, optional_pending
+    if required_missing:
+        return "required_missing", f"required checks still missing: {', '.join(required_missing)}", required_missing, optional_pending
+    if optional_pending:
+        return "optional_pending", f"optional checks still pending: {', '.join(optional_pending)}", required_missing, optional_pending
+    return "ready", "all required validation checks have been observed", required_missing, optional_pending
 
 
 def serialize_validation_recipe(recipe: ValidationRecipe | None) -> tuple[str | None, str]:

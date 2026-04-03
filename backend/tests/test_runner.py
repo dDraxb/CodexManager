@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import sqlite3
+import subprocess
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
@@ -591,6 +592,128 @@ def test_reconcile_once_backfills_validation_result_from_full_log(configured_mod
     assert refreshed.test_activity == "none"
     assert refreshed.test_status == "passed"
     assert refreshed.test_status_at is not None
+
+
+def test_reconcile_once_marks_code_changed_since_last_green_validation(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session, list_events
+
+    class ValidationRunner(RecordingRunner):
+        def __init__(self, repo_path: str, outputs: list[list[str]]) -> None:
+            super().__init__(repo_path, session_exists=True)
+            self.outputs = outputs
+
+        def capture_pane(self, session_name: str, tail: int = 200) -> list[str]:
+            self.calls.append(("capture_pane", session_name, tail))
+            if len(self.outputs) > 1:
+                return self.outputs.pop(0)
+            return self.outputs[0]
+
+        def changed_files(self, repo_path: str, cwd: str | None) -> list[str]:
+            self.calls.append(("changed_files", repo_path, cwd))
+            result = subprocess.run(
+                ["git", "status", "--short"],
+                cwd=repo_path,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            files = []
+            for line in result.stdout.splitlines():
+                entry = line[3:].strip()
+                if entry:
+                    files.append(entry)
+            return files
+
+    runner = ValidationRunner(
+        str(git_repo),
+        outputs=[
+            [
+                "$ pytest",
+                "============================== 4 passed in 0.20s ==============================",
+            ],
+            ["Session is idle now."],
+        ],
+    )
+
+    session = create_managed_session(
+        name="validation-drift-session",
+        repo_path=str(git_repo),
+        profile="read-only",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+
+    reconcile_once(runner=runner)
+    first = get_session(session.id)
+    assert first is not None
+    assert first.last_green_validation_kind == "tests"
+    assert first.changed_since_green_validation == 0
+
+    (git_repo / "README.md").write_text("changed after green\n", encoding="utf-8")
+
+    reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert refreshed is not None
+    assert refreshed.changed_since_green_validation == 1
+    assert refreshed.changed_since_green_reason == "code changed since the last green validation"
+    assert refreshed.health_reason == "code changed after last green validation"
+    assert refreshed.priority_reason == "validation baseline is stale"
+    events = list_events(session.id)
+    assert any(event.type == "validation_drift_changed" and event.message == "Validation drift detected" for event in events)
+
+
+def test_reconcile_once_tracks_missing_recipe_validation_checks(configured_modules, git_repo):
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session, list_events
+
+    class ValidationRunner(RecordingRunner):
+        def detect_validation_recipe(self, repo_path: str) -> dict | None:
+            self.calls.append(("detect_validation_recipe", repo_path))
+            return {
+                "recipe_id": "custom-json",
+                "recipe_json": '{"label":"Repo policy","checks":[{"kind":"tests","label":"Tests","command":"pytest"},{"kind":"lint","label":"Lint","command":"ruff check ."},{"kind":"build","label":"Build","command":"python -m build"}]}',
+            }
+
+        def capture_pane(self, session_name: str, tail: int = 200) -> list[str]:
+            self.calls.append(("capture_pane", session_name, tail))
+            return [
+                "$ pytest",
+                "============================== 4 passed in 0.20s ==============================",
+            ]
+
+    runner = ValidationRunner(str(git_repo), session_exists=True)
+
+    session = create_managed_session(
+        name="validation-coverage-session",
+        repo_path=str(git_repo),
+        profile="read-only",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+
+    reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert refreshed is not None
+    assert refreshed.missing_validation_checks_json == '["lint", "build"]'
+    assert refreshed.optional_validation_checks_json == "[]"
+    assert refreshed.validation_policy_state == "required_missing"
+    assert refreshed.validation_policy_reason == "required checks still missing: lint, build"
+    assert refreshed.validation_coverage_reason == "required recipe checks not yet observed: lint, build"
+    assert refreshed.review_readiness_state == "not_ready"
+    assert refreshed.review_readiness_reason == "required validation checks are still missing"
+    events = list_events(session.id)
+    assert any(event.type == "review_readiness_changed" and event.message == "Review readiness -> not_ready" for event in events)
 
 
 def test_reconcile_once_marks_blocked_phase_from_environment_errors(configured_modules, git_repo):
