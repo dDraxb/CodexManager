@@ -44,6 +44,12 @@ class RunnerClient(Protocol):
     def create_codex_skill(self, scope: str, name: str, summary: str, repo_path: str | None = None) -> dict:
         """Create a global or workspace Codex skill scaffold and return its metadata."""
 
+    def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
+        """Read global or workspace Codex config content from the execution environment."""
+
+    def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        """Write global or workspace Codex config content and return saved metadata."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

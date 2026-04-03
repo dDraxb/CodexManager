@@ -83,6 +83,17 @@ class CodexSkillCreateRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexConfigReadRequest(BaseModel):
+    scope: str
+    repo_path: str | None = None
+
+
+class CodexConfigWriteRequest(BaseModel):
+    scope: str
+    content: str
+    repo_path: str | None = None
+
+
 class TmuxSessionRequest(BaseModel):
     session_name: str
 
@@ -240,6 +251,22 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
                 request.repo_path,
             )
         )
+
+    @app.post("/read-codex-config")
+    def read_codex_config_endpoint(
+        request: CodexConfigReadRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.read_codex_config(request.scope, request.repo_path))
+
+    @app.post("/write-codex-config")
+    def write_codex_config_endpoint(
+        request: CodexConfigWriteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.write_codex_config(request.scope, request.content, request.repo_path))
 
     @app.post("/codex/find-recent-session")
     def find_recent_codex_session(

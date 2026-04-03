@@ -28,6 +28,11 @@ const EMPTY_SKILL_FORM = {
   summary: ''
 }
 
+const EMPTY_CONFIG_EDITOR = {
+  global: null,
+  workspace: null
+}
+
 const COMMAND_TABS = [
   { id: 'create', label: 'New session' },
   { id: 'adopt', label: 'Adopt session' },
@@ -673,6 +678,8 @@ export default function App() {
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
   const [adoptForm, setAdoptForm] = useState(EMPTY_ADOPT_FORM)
   const [skillForm, setSkillForm] = useState(EMPTY_SKILL_FORM)
+  const [codexConfigs, setCodexConfigs] = useState(EMPTY_CONFIG_EDITOR)
+  const [activeConfigScope, setActiveConfigScope] = useState('global')
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [sessionQuery, setSessionQuery] = useState('')
@@ -1251,6 +1258,43 @@ export default function App() {
     }
   }
 
+  async function loadCodexConfig(scope) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () => fetchJson(`/api/codex-config?scope=${encodeURIComponent(scope)}&repo_path=${encodeURIComponent(repoPath)}`),
+      null
+    )
+    if (!payload) return
+    setCodexConfigs((current) => ({
+      ...current,
+      [scope]: payload
+    }))
+  }
+
+  async function saveCodexConfig(scope) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const config = codexConfigs[scope]
+    if (!config) return
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            content: config.content,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (result) => `Saved ${scope} Codex config at ${result.path}`
+    )
+    if (!payload) return
+    await loadCodexConfig(scope)
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -1318,6 +1362,16 @@ export default function App() {
 
   const activeCount = sessions.filter((session) => !isArchivedSession(session)).length
   const archivedCount = sessions.filter((session) => isArchivedSession(session)).length
+
+  useEffect(() => {
+    if (commandTab !== 'environment' || !showCommandPanel) return
+    loadCodexConfig('global')
+    if (detail?.repo_path || selectedSession?.repo_path) {
+      loadCodexConfig('workspace')
+    } else {
+      setCodexConfigs((current) => ({ ...current, workspace: null }))
+    }
+  }, [commandTab, detail?.repo_path, selectedSession?.repo_path, showCommandPanel])
 
   return (
     <div className="shell">
@@ -1675,6 +1729,41 @@ export default function App() {
                 </div>
                 <button type="submit" className="primary">Create skill scaffold</button>
               </form>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Codex Config Editor</p>
+                    <p className="muted">Read and update Codex config on the execution host with a simple backup on save.</p>
+                  </div>
+                  <div className="row">
+                    <button type="button" className={`ghost ${activeConfigScope === 'global' ? 'active-filter' : ''}`} onClick={() => setActiveConfigScope('global')}>Global</button>
+                    <button type="button" className={`ghost ${activeConfigScope === 'workspace' ? 'active-filter' : ''}`} onClick={() => setActiveConfigScope('workspace')} disabled={!(detail?.repo_path || selectedSession?.repo_path)}>Workspace</button>
+                  </div>
+                </div>
+                {codexConfigs[activeConfigScope] ? (
+                  <div className="stack-form">
+                    <p className="muted">
+                      {codexConfigs[activeConfigScope].exists
+                        ? `Editing ${codexConfigs[activeConfigScope].path}`
+                        : `No config exists yet. Saving will create ${codexConfigs[activeConfigScope].path}`}
+                    </p>
+                    <textarea
+                      rows="10"
+                      value={codexConfigs[activeConfigScope].content}
+                      onChange={(event) => setCodexConfigs((current) => ({
+                        ...current,
+                        [activeConfigScope]: {
+                          ...current[activeConfigScope],
+                          content: event.target.value
+                        }
+                      }))}
+                    />
+                    <button type="button" className="primary" onClick={() => saveCodexConfig(activeConfigScope)}>Save Codex config</button>
+                  </div>
+                ) : (
+                  <p className="muted">Load a global or workspace config to edit it here.</p>
+                )}
+              </div>
             </div>
           ) : null}
         </article>

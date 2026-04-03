@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.codex_config import CodexConfigError, read_codex_config, write_codex_config
 from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
 from app.services.codex_skills import CodexSkillError, create_codex_skill
@@ -139,6 +140,18 @@ class LocalRunnerClient(RunnerClient):
         try:
             return create_codex_skill(scope=scope, name=name, summary=summary, repo_path=repo_path)
         except CodexSkillError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
+        try:
+            return read_codex_config(scope=scope, repo_path=repo_path)
+        except CodexConfigError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        try:
+            return write_codex_config(scope=scope, content=content, repo_path=repo_path)
+        except CodexConfigError as exc:
             raise RunnerError(str(exc)) from exc
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
@@ -289,6 +302,15 @@ class RemoteRunnerClient(RunnerClient):
                 "summary": summary,
                 "repo_path": repo_path,
             },
+        )
+
+    def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
+        return self._post("/read-codex-config", {"scope": scope, "repo_path": repo_path})
+
+    def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        return self._post(
+            "/write-codex-config",
+            {"scope": scope, "content": content, "repo_path": repo_path},
         )
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:

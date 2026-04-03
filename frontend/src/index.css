@@ -294,6 +294,12 @@ p {
   color: var(--text);
 }
 
+.active-filter {
+  border-color: rgba(89, 217, 187, 0.38);
+  background: linear-gradient(180deg, rgba(21, 58, 50, 0.96), rgba(14, 39, 34, 0.96));
+  color: var(--text);
+}
+
 .command-card,
 .card,
 .panel,
