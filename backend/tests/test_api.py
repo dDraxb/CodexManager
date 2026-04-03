@@ -213,6 +213,51 @@ def test_api_lists_repo_policies(configured_modules, tmp_path, monkeypatch):
     assert response.json()["policies"][0]["policy_id"] == "php-main-guard"
 
 
+def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "repo-policies.json").write_text(
+        json.dumps(
+            {
+                "policies": {
+                    "php-main-guard": {
+                        "label": "PHP Main Guard",
+                        "match": {"path_prefixes": [str(git_repo)]},
+                        "rules": {"protected_branches": ["main"], "require_worktree_for_write": True},
+                        "defaults": {"require_changelog": True, "approval_policy": "never"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "policy-enforced",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "createWorktreeForWrites": False,
+            "requireChangelog": False,
+            "launch": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["repo_policy_id"] == "php-main-guard"
+    assert payload["approval_policy"] == "never"
+    assert payload["require_changelog"] == 1
+    assert payload["worktree_path"]
+    assert payload["cwd"] == payload["worktree_path"]
+
+
 def test_api_applies_validation_preset(configured_modules, tmp_path, monkeypatch):
     from app.api import server
 

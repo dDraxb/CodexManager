@@ -132,6 +132,13 @@ def create_managed_session(
     log_path = _make_log_file(session_id)
     tmux_session = _tmux_session_name(name, session_id)
     allow_write = 0 if profile == "read-only" else 1
+    matched_policy = match_repo_policy(repo)
+    if matched_policy and matched_policy.default_approval_policy:
+        approval_policy = matched_policy.default_approval_policy
+    if matched_policy and matched_policy.require_changelog:
+        require_changelog = True
+    if matched_policy and matched_policy.require_worktree_for_write and allow_write:
+        create_worktree_for_writes = True
     branch = None
     worktree_path = None
     cwd = repo
@@ -158,7 +165,6 @@ def create_managed_session(
     except RunnerError as exc:
         raise SessionError(str(exc)) from exc
 
-    matched_policy = match_repo_policy(repo)
     repo_policy_id, repo_policy_label, repo_policy_json = serialize_repo_policy(matched_policy)
 
     try:

@@ -373,6 +373,25 @@ p {
   line-height: 1.45;
 }
 
+.policy-hint {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(89, 217, 187, 0.2);
+  border-radius: 14px;
+  background: rgba(14, 27, 41, 0.76);
+}
+
+.policy-hint strong {
+  color: var(--text);
+}
+
+.policy-hint button {
+  width: auto;
+  justify-self: start;
+}
+
 .history-browser {
   margin-top: 14px;
   padding-top: 14px;

@@ -326,6 +326,24 @@ function createRecipeDraft(recipe) {
   }
 }
 
+function matchRepoPolicyForPath(repoPolicies, repoPath) {
+  const normalizedRepoPath = repoPath.trim()
+  if (!normalizedRepoPath) return null
+  let best = null
+  for (const policy of repoPolicies) {
+    const prefixes = Array.isArray(policy.path_prefixes) ? policy.path_prefixes : []
+    for (const prefix of prefixes) {
+      if (!prefix) continue
+      if (normalizedRepoPath === prefix || normalizedRepoPath.startsWith(`${String(prefix).replace(/\/+$/, '')}/`)) {
+        if (!best || String(prefix).length > String(best.prefix).length) {
+          best = { policy, prefix }
+        }
+      }
+    }
+  }
+  return best?.policy || null
+}
+
 function stateTimelineEntry(event) {
   const metadata = parseEventMetadata(event)
   if (event.type === 'status_changed') {
@@ -699,6 +717,14 @@ export default function App() {
   const selectedSession = useMemo(
     () => visibleSessions.find((session) => session.id === selectedId) || sessions.find((session) => session.id === selectedId) || null,
     [selectedId, sessions, visibleSessions]
+  )
+  const matchedCreatePolicy = useMemo(
+    () => matchRepoPolicyForPath(repoPolicies, createForm.repoPath),
+    [createForm.repoPath, repoPolicies]
+  )
+  const matchedAdoptPolicy = useMemo(
+    () => matchRepoPolicyForPath(repoPolicies, adoptForm.repoPath),
+    [adoptForm.repoPath, repoPolicies]
   )
   const validationRecipe = parseValidationRecipe(detail?.validation_recipe_json || selectedSession?.validation_recipe_json)
   const canAct = !!selectedSession
@@ -1107,6 +1133,20 @@ export default function App() {
     setAdoptForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  function applyCreatePolicyDefaults() {
+    if (!matchedCreatePolicy) return
+    setCreateForm((prev) => ({
+      ...prev,
+      profile: matchedCreatePolicy.default_profile || prev.profile,
+      createWorktreeForWrites: prev.createWorktreeForWrites || !!matchedCreatePolicy.require_worktree_for_write,
+      requireChangelog: prev.requireChangelog || !!matchedCreatePolicy.require_changelog
+    }))
+    if (matchedCreatePolicy.require_worktree_for_write || matchedCreatePolicy.require_changelog) {
+      setShowCreateAdvanced(true)
+    }
+    notify('success', `Applied repo policy defaults from ${matchedCreatePolicy.policy_id}`)
+  }
+
   async function createSession(event) {
     event.preventDefault()
     const payload = buildCreatePayload(createForm)
@@ -1336,6 +1376,18 @@ export default function App() {
                   <div className="helper-copy">
                     <span className="field-label">What this controls</span>
                     <p className="muted">This controls Codex permissions and approval behavior. Leave the working directory blank to start in the runner home directory.</p>
+                    {matchedCreatePolicy ? (
+                      <div className="policy-hint">
+                        <p><strong>Matched repo policy:</strong> {matchedCreatePolicy.label}</p>
+                        <p className="muted">
+                          {matchedCreatePolicy.require_worktree_for_write ? 'Requires dedicated worktree for writable sessions. ' : ''}
+                          {matchedCreatePolicy.require_changelog ? 'Requires CHANGELOG entry. ' : ''}
+                          {matchedCreatePolicy.default_profile ? `Suggested profile: ${matchedCreatePolicy.default_profile}. ` : ''}
+                          {matchedCreatePolicy.default_approval_policy ? `Default approval: ${matchedCreatePolicy.default_approval_policy}.` : ''}
+                        </p>
+                        <button type="button" className="ghost" onClick={applyCreatePolicyDefaults}>Apply policy defaults</button>
+                      </div>
+                    ) : null}
                     {validationPresets.length ? (
                       <p className="muted">Manager validation presets: {validationPresets.map((preset) => preset.id).join(', ')}</p>
                     ) : null}
@@ -1418,6 +1470,17 @@ export default function App() {
                   <div className="helper-copy">
                     <span className="field-label">What to provide</span>
                     <p className="muted">Use the existing Codex session id and the repo path where that work actually lives on the runner host.</p>
+                    {matchedAdoptPolicy ? (
+                      <div className="policy-hint">
+                        <p><strong>Matched repo policy:</strong> {matchedAdoptPolicy.label}</p>
+                        <p className="muted">
+                          {matchedAdoptPolicy.require_worktree_for_write ? 'Writable resumes in this repo are expected to use worktree isolation. ' : ''}
+                          {matchedAdoptPolicy.require_changelog ? 'This repo expects a CHANGELOG entry for tracked work. ' : ''}
+                          {matchedAdoptPolicy.default_profile ? `Suggested profile: ${matchedAdoptPolicy.default_profile}. ` : ''}
+                          {matchedAdoptPolicy.default_approval_policy ? `Default approval: ${matchedAdoptPolicy.default_approval_policy}.` : ''}
+                        </p>
+                      </div>
+                    ) : null}
                     {validationPresets.length ? (
                       <p className="muted">Available manager presets: {validationPresets.map((preset) => preset.id).join(', ')}</p>
                     ) : null}
