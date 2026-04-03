@@ -98,6 +98,27 @@ def _recipe_from_preset_id(preset_id: str) -> ValidationRecipe | None:
     return _normalize_custom_recipe(payload, f"preset:{preset_id}")
 
 
+def list_manager_validation_presets() -> list[dict]:
+    presets = _load_manager_preset_library()
+    rows: list[dict] = []
+    for preset_id, payload in presets.items():
+        if not isinstance(payload, dict):
+            continue
+        recipe = _normalize_custom_recipe(payload, f"preset:{preset_id}")
+        if recipe is None:
+            continue
+        rows.append(
+            {
+                "id": preset_id,
+                "recipe_id": recipe.recipe_id,
+                "label": recipe.label,
+                "checks": [asdict(check) for check in recipe.checks],
+            }
+        )
+    rows.sort(key=lambda row: row["id"])
+    return rows
+
+
 def _custom_recipe(root: Path) -> ValidationRecipe | None:
     candidates = [
         (root / ".codexmgr" / "validation.json", _load_json, "custom-json"),

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
+from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
     SessionError,
     adopt_session,
@@ -124,6 +125,11 @@ def session_validation_history(session_id: str, limit: int = 30) -> list[dict]:
 def codex_history(query: str | None = None, cwd: str | None = None, limit: int = 20) -> dict:
     client = get_runner_client()
     return {"threads": client.list_codex_threads(cwd, query, limit=limit)}
+
+
+@app.get("/api/validation-presets")
+def validation_presets() -> dict:
+    return {"presets": list_manager_validation_presets()}
 
 
 @app.get("/api/codex/resume-points")

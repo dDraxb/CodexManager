@@ -153,6 +153,36 @@ def test_api_start_without_path_defaults_to_runner_home(configured_modules, tmp_
     assert payload["target_label"] == "home"
 
 
+def test_api_lists_validation_presets(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "validation-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "strict-node": {
+                        "label": "Strict Node",
+                        "checks": [
+                            {"kind": "tests", "label": "Tests", "command": "npm test"},
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get("/api/validation-presets")
+    assert response.status_code == 200
+    assert response.json()["presets"][0]["id"] == "strict-node"
+
+
 def test_api_delete_session(configured_modules, git_repo):
     from app.api import server
 

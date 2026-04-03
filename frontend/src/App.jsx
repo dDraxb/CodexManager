@@ -168,6 +168,17 @@ function validationCheckRequirementLabel(required) {
   return required === false ? 'optional' : 'required'
 }
 
+function validationRecipeSourceLabel(recipeId) {
+  if (!recipeId) return 'source not established'
+  if (recipeId.startsWith('preset:')) {
+    return `manager preset · ${recipeId.slice('preset:'.length)}`
+  }
+  if (recipeId === 'custom-json' || recipeId === 'custom-toml') {
+    return 'repo-local custom recipe'
+  }
+  return `auto-detected · ${recipeId}`
+}
+
 function validationHistoryEntryLabel(entry) {
   if (!entry) return 'Unknown validation update'
   const noun = entry.kind === 'lint' ? 'Lint' : entry.kind === 'build' ? 'Build' : 'Tests'
@@ -571,6 +582,7 @@ function activityLabel(session) {
 export default function App() {
   const [summary, setSummary] = useState({ total: 0, counts: {}, needsAttention: 0 })
   const [sessions, setSessions] = useState([])
+  const [validationPresets, setValidationPresets] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [events, setEvents] = useState([])
@@ -716,10 +728,15 @@ export default function App() {
   async function loadAll() {
     try {
       setError('')
-      const [nextSummary, rows] = await Promise.all([fetchJson('/api/summary'), fetchJson('/api/sessions')])
+      const [nextSummary, rows, presetPayload] = await Promise.all([
+        fetchJson('/api/summary'),
+        fetchJson('/api/sessions'),
+        fetchJson('/api/validation-presets')
+      ])
       startTransition(() => {
         setSummary(nextSummary)
         setSessions(rows)
+        setValidationPresets(presetPayload.presets || [])
       })
     } catch (err) {
       const message = formatError(err)
@@ -1182,6 +1199,9 @@ export default function App() {
                   <div className="helper-copy">
                     <span className="field-label">What this controls</span>
                     <p className="muted">This controls Codex permissions and approval behavior. Leave the working directory blank to start in the runner home directory.</p>
+                    {validationPresets.length ? (
+                      <p className="muted">Manager validation presets: {validationPresets.map((preset) => preset.id).join(', ')}</p>
+                    ) : null}
                   </div>
                   <label className="toggle toggle-inline">
                     <input type="checkbox" checked={createForm.launch} onChange={(event) => onCreateField('launch', event.target.checked)} />
@@ -1258,6 +1278,9 @@ export default function App() {
                   <div className="helper-copy">
                     <span className="field-label">What to provide</span>
                     <p className="muted">Use the existing Codex session id and the repo path where that work actually lives on the runner host.</p>
+                    {validationPresets.length ? (
+                      <p className="muted">Available manager presets: {validationPresets.map((preset) => preset.id).join(', ')}</p>
+                    ) : null}
                   </div>
                 </div>
                 <button type="submit" className="primary">Adopt session</button>
@@ -1593,6 +1616,7 @@ export default function App() {
             {validationRecipe?.label ? (
               <>
                 <p className="muted">Validation recipe: {validationRecipe.label}</p>
+                <p className="muted">Recipe source: {validationRecipeSourceLabel(detail?.validation_recipe_id || selectedSession?.validation_recipe_id || null)}</p>
                 {Array.isArray(validationRecipe.checks) && validationRecipe.checks.length ? (
                   <div className="activity-subsection">
                     <p className="activity-label">Expected checks</p>

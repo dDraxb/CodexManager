@@ -169,6 +169,44 @@ def test_detect_validation_recipe_falls_back_when_preset_reference_is_missing(tm
     assert [check.kind for check in recipe.checks] == ["tests", "lint"]
 
 
+def test_list_manager_validation_presets_returns_normalized_presets(tmp_path, monkeypatch):
+    from app.services.validation_recipe import list_manager_validation_presets
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "validation-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "strict-node": {
+                        "label": "Strict Node",
+                        "checks": [
+                            {"kind": "tests", "label": "Tests", "command": "npm test"},
+                            {"kind": "lint", "label": "Lint", "command": "npm run lint", "required": False},
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = list_manager_validation_presets()
+
+    assert rows == [
+        {
+            "id": "strict-node",
+            "recipe_id": "preset:strict-node",
+            "label": "Strict Node",
+            "checks": [
+                {"kind": "tests", "label": "Tests", "command": "npm test", "required": True},
+                {"kind": "lint", "label": "Lint", "command": "npm run lint", "required": False},
+            ],
+        }
+    ]
+
+
 def test_missing_validation_checks_ignores_optional_checks():
     from app.services.validation_recipe import missing_validation_checks
 
