@@ -210,6 +210,14 @@ def create_managed_session(
                 "repo_risk_reason": "repo state looks normal",
                 "repo_overlap_count": 0,
                 "repo_overlap_preview": "[]",
+                "protected_branch_state": "clear",
+                "protected_branch_reason": None,
+                "isolation_state": "satisfied" if worktree_path else ("recommended_missing" if allow_write else "not_required"),
+                "isolation_reason": (
+                    "writable session is isolated in a dedicated worktree"
+                    if worktree_path
+                    else ("writable repo work is not isolated in a dedicated worktree" if allow_write else "read-only session does not require worktree isolation")
+                ),
                 "validation_recipe_id": validation_recipe_id,
                 "validation_recipe_json": validation_recipe_json,
                 "missing_validation_checks_json": "[]",
@@ -382,6 +390,10 @@ def adopt_session(
                 "repo_risk_reason": "repo state looks normal",
                 "repo_overlap_count": 0,
                 "repo_overlap_preview": "[]",
+                "protected_branch_state": "clear",
+                "protected_branch_reason": None,
+                "isolation_state": "not_required",
+                "isolation_reason": "read-only session does not require worktree isolation",
                 "validation_recipe_id": validation_recipe_id,
                 "validation_recipe_json": validation_recipe_json,
                 "missing_validation_checks_json": "[]",

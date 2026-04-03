@@ -19,6 +19,7 @@ from app.services.sessions import (
 )
 from app.services.health import assess_session_health
 from app.services.priority import assess_session_priority
+from app.services.repo_policy import assess_repo_policy
 from app.services.repo_risk import assess_repo_risk
 from app.services.completion_state import assess_completion_state
 from app.services.review_readiness import assess_review_readiness
@@ -335,6 +336,33 @@ def _record_repo_overlap(session_id: str, overlap_paths: list[str]) -> None:
             (
                 len(overlap_paths),
                 json.dumps(overlap_paths[:10]),
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _record_repo_policy(
+    session_id: str,
+    *,
+    protected_branch_state: str,
+    protected_branch_reason: str | None,
+    isolation_state: str,
+    isolation_reason: str | None,
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET protected_branch_state = ?, protected_branch_reason = ?,
+                isolation_state = ?, isolation_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                protected_branch_state,
+                protected_branch_reason,
+                isolation_state,
+                isolation_reason,
                 datetime.now(UTC).replace(microsecond=0).isoformat(),
                 session_id,
             ),
@@ -1024,6 +1052,43 @@ def _refresh_repo_risk(session, active_repo_peers: int, overlapping_paths: list[
     session.repo_overlap_preview = json.dumps(snapshot.overlap_paths[:10])
 
 
+def _refresh_repo_policy(session) -> None:
+    snapshot = assess_repo_policy(
+        branch=session.branch,
+        allow_write=session.allow_write,
+        worktree_path=session.worktree_path,
+    )
+    if (
+        snapshot.protected_branch_state == (session.protected_branch_state or "clear")
+        and snapshot.protected_branch_reason == session.protected_branch_reason
+        and snapshot.isolation_state == (session.isolation_state or "not_required")
+        and snapshot.isolation_reason == session.isolation_reason
+    ):
+        return
+    _record_repo_policy(
+        session.id,
+        protected_branch_state=snapshot.protected_branch_state,
+        protected_branch_reason=snapshot.protected_branch_reason,
+        isolation_state=snapshot.isolation_state,
+        isolation_reason=snapshot.isolation_reason,
+    )
+    _event(
+        session.id,
+        "repo_policy_changed",
+        "Repo policy signals updated",
+        {
+            "protected_branch_state": snapshot.protected_branch_state,
+            "protected_branch_reason": snapshot.protected_branch_reason,
+            "isolation_state": snapshot.isolation_state,
+            "isolation_reason": snapshot.isolation_reason,
+        },
+    )
+    session.protected_branch_state = snapshot.protected_branch_state
+    session.protected_branch_reason = snapshot.protected_branch_reason
+    session.isolation_state = snapshot.isolation_state
+    session.isolation_reason = snapshot.isolation_reason
+
+
 def _refresh_codex_session_link(session, client: RunnerClient) -> None:
     if session.mode != "managed" or session.codex_session_id or not session.cwd:
         return
@@ -1123,6 +1188,7 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
             live_repo_sessions.setdefault(session.repo_path, []).append(session)
     for session in sessions:
         session = refresh_git_state(session, runner=client)
+        _refresh_repo_policy(session)
         peer_count = active_repo_counts.get(session.repo_path, 0)
         if session.status in LIVE_REPO_STATUSES or session.attachment_state == "attached":
             peer_count = max(0, peer_count - 1)

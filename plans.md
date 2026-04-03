@@ -656,18 +656,52 @@ This is not glamorous, but it is high leverage. The tool becomes much more usefu
 
 ### Phase B - Improve operator value
 - richer validation/test telemetry
-- better event taxonomy
-- better session summaries
-- stronger archive/history experience
+- focused repo-safety intelligence needed for autonomy
+- repo-specific policies and preset assignment
 - begin Codex config/skills/preset management layer
+- then continue archive/history and summary depth
 
 ### Phase C - Expand into a true engineering control plane
-- multi-host runners
-- policy engine
+- Layer 6 policy engine and repo matching
+- Layer 6.5 Codex environment management for rules, skills, prompts, and MCP assets
 - repo-specific automation
-- search/history/analytics
 - stronger handoff and collaboration features
-- full Codex environment management and preset ecosystem
+- search/history/analytics
+- multi-host runners
+
+### Recommended Near-Term Build Order
+
+To optimize for higher-autonomy Codex execution rather than strict numeric layer order, the recommended sequence is:
+
+1. Finish only the critical Layer 2 baseline.
+- validation recipes, policy state, review/completion readiness, and local recipe authoring
+- enough to define what “good” or “green” means for a repo
+
+2. Do a focused Layer 3 safety pass.
+- protected-branch risk
+- worktree isolation expectations
+- dirty-repo and overlapping-session warnings
+- enough to define what is safe
+
+3. Move directly into Layer 6.
+- repo matching rules
+- preset and policy assignment
+- enforcement-ready policy metadata
+
+4. Then pull forward Layer 6.5.
+- rules
+- skills
+- prompts
+- Codex config editing
+- MCP/tool definitions
+
+This is the intended autonomy-first path:
+- Layer 2 defines quality gates
+- Layer 3 defines safety gates
+- Layer 6 defines enforceable behavior
+- Layer 6.5 shapes Codex itself for better autonomous output
+
+Layers 4 and 5 remain important, but they are not prerequisites for making the system more autonomous and trustworthy.
 
 ---
 

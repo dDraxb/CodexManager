@@ -214,6 +214,25 @@ function blockCategoryLabel(category) {
   return map[category] || 'Unknown'
 }
 
+function protectedBranchLabel(state) {
+  const map = {
+    violation: 'violation',
+    protected: 'protected',
+    clear: 'clear'
+  }
+  return map[state] || 'clear'
+}
+
+function isolationStateLabel(state) {
+  const map = {
+    satisfied: 'satisfied',
+    required_missing: 'required',
+    recommended_missing: 'recommended',
+    not_required: 'not required'
+  }
+  return map[state] || 'not required'
+}
+
 function phaseBadgeClass(phase) {
   const map = {
     planning: 'badge badge-idle',
@@ -397,6 +416,15 @@ function stateTimelineEntry(event) {
       label: 'Repo risk',
       value: metadata.repo_risk_reason || event.message,
       detail: null
+    }
+  }
+  if (event.type === 'repo_policy_changed') {
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      label: 'Repo policy',
+      value: `${protectedBranchLabel(metadata.protected_branch_state)} · ${isolationStateLabel(metadata.isolation_state)}`,
+      detail: metadata.protected_branch_reason || metadata.isolation_reason || null
     }
   }
   if (event.type === 'attachment_changed') {
@@ -1564,6 +1592,26 @@ export default function App() {
                   <span className="overview-label">Profile</span>
                   <span className="overview-value">{selectedSession.profile}</span>
                 </div>
+                <div className="overview-item">
+                  <span className="overview-label">Protected branch</span>
+                  <span className="overview-value">{protectedBranchLabel(detail?.protected_branch_state || selectedSession.protected_branch_state)}</span>
+                </div>
+                <div className="overview-item">
+                  <span className="overview-label">Isolation policy</span>
+                  <span className="overview-value">{isolationStateLabel(detail?.isolation_state || selectedSession.isolation_state)}</span>
+                </div>
+                {(detail?.protected_branch_reason || selectedSession.protected_branch_reason) ? (
+                  <div className="overview-item overview-item-wide">
+                    <span className="overview-label">Protected branch reason</span>
+                    <span className="overview-value">{detail?.protected_branch_reason || selectedSession.protected_branch_reason}</span>
+                  </div>
+                ) : null}
+                {(detail?.isolation_reason || selectedSession.isolation_reason) ? (
+                  <div className="overview-item overview-item-wide">
+                    <span className="overview-label">Isolation reason</span>
+                    <span className="overview-value">{detail?.isolation_reason || selectedSession.isolation_reason}</span>
+                  </div>
+                ) : null}
                 <div className="overview-item overview-item-wide">
                   <span className="overview-label">Execution path</span>
                   <span className="overview-value">{detail?.worktree_path || detail?.repo_path || selectedSession.repo_path}</span>

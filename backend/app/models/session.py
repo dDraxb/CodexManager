@@ -124,6 +124,10 @@ class SessionRecord:
     repo_risk_reason: str
     repo_overlap_count: int
     repo_overlap_preview: str
+    protected_branch_state: str
+    protected_branch_reason: str | None
+    isolation_state: str
+    isolation_reason: str | None
     validation_recipe_id: str | None
     validation_recipe_json: str
     missing_validation_checks_json: str
