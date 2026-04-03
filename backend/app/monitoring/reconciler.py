@@ -19,6 +19,7 @@ from app.services.sessions import (
 )
 from app.services.health import assess_session_health
 from app.services.priority import assess_session_priority
+from app.services.repo_baseline import assess_repo_baseline
 from app.services.repo_policy import assess_repo_policy
 from app.services.repo_risk import assess_repo_risk
 from app.services.completion_state import assess_completion_state
@@ -363,6 +364,33 @@ def _record_repo_policy(
                 protected_branch_reason,
                 isolation_state,
                 isolation_reason,
+                datetime.now(UTC).replace(microsecond=0).isoformat(),
+                session_id,
+            ),
+        )
+
+
+def _record_repo_baseline(
+    session_id: str,
+    *,
+    dirty_start_state: str,
+    dirty_start_reason: str | None,
+    changed_since_start: int,
+    changed_since_start_reason: str | None,
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET dirty_start_state = ?, dirty_start_reason = ?,
+                changed_since_start = ?, changed_since_start_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                dirty_start_state,
+                dirty_start_reason,
+                changed_since_start,
+                changed_since_start_reason,
                 datetime.now(UTC).replace(microsecond=0).isoformat(),
                 session_id,
             ),
@@ -916,6 +944,8 @@ def _refresh_health(session, idle_age: int | None, idle_threshold_seconds: int) 
         changed_since_green_validation=session.changed_since_green_validation,
         last_green_validation_kind=session.last_green_validation_kind,
         missing_validation_checks_count=len(json.loads(session.missing_validation_checks_json or "[]")),
+        dirty_start_state=session.dirty_start_state,
+        changed_since_start=session.changed_since_start,
         idle_age_seconds=idle_age,
         needs_attention=session.needs_attention,
         idle_threshold_seconds=idle_threshold_seconds,
@@ -960,6 +990,8 @@ def _refresh_priority(session, idle_age: int | None, idle_threshold_seconds: int
         changed_since_green_validation=session.changed_since_green_validation,
         last_green_validation_kind=session.last_green_validation_kind,
         missing_validation_checks_count=len(json.loads(session.missing_validation_checks_json or "[]")),
+        dirty_start_state=session.dirty_start_state,
+        changed_since_start=session.changed_since_start,
         idle_age_seconds=idle_age,
         needs_attention=session.needs_attention,
         idle_threshold_seconds=idle_threshold_seconds,
@@ -1089,6 +1121,44 @@ def _refresh_repo_policy(session) -> None:
     session.isolation_reason = snapshot.isolation_reason
 
 
+def _refresh_repo_baseline(session) -> None:
+    snapshot = assess_repo_baseline(
+        initial_changed_files_count=session.initial_changed_files_count,
+        initial_changed_files_preview=session.initial_changed_files_preview,
+        changed_files_count=session.changed_files_count,
+        changed_files_preview=session.changed_files_preview,
+    )
+    if (
+        snapshot.dirty_start_state == (session.dirty_start_state or "clean")
+        and snapshot.dirty_start_reason == session.dirty_start_reason
+        and snapshot.changed_since_start == int(session.changed_since_start or 0)
+        and snapshot.changed_since_start_reason == session.changed_since_start_reason
+    ):
+        return
+    _record_repo_baseline(
+        session.id,
+        dirty_start_state=snapshot.dirty_start_state,
+        dirty_start_reason=snapshot.dirty_start_reason,
+        changed_since_start=snapshot.changed_since_start,
+        changed_since_start_reason=snapshot.changed_since_start_reason,
+    )
+    _event(
+        session.id,
+        "repo_baseline_changed",
+        "Repo baseline signals updated",
+        {
+            "dirty_start_state": snapshot.dirty_start_state,
+            "dirty_start_reason": snapshot.dirty_start_reason,
+            "changed_since_start": snapshot.changed_since_start,
+            "changed_since_start_reason": snapshot.changed_since_start_reason,
+        },
+    )
+    session.dirty_start_state = snapshot.dirty_start_state
+    session.dirty_start_reason = snapshot.dirty_start_reason
+    session.changed_since_start = snapshot.changed_since_start
+    session.changed_since_start_reason = snapshot.changed_since_start_reason
+
+
 def _refresh_codex_session_link(session, client: RunnerClient) -> None:
     if session.mode != "managed" or session.codex_session_id or not session.cwd:
         return
@@ -1188,6 +1258,7 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
             live_repo_sessions.setdefault(session.repo_path, []).append(session)
     for session in sessions:
         session = refresh_git_state(session, runner=client)
+        _refresh_repo_baseline(session)
         _refresh_repo_policy(session)
         peer_count = active_repo_counts.get(session.repo_path, 0)
         if session.status in LIVE_REPO_STATUSES or session.attachment_state == "attached":

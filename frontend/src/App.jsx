@@ -427,6 +427,15 @@ function stateTimelineEntry(event) {
       detail: metadata.protected_branch_reason || metadata.isolation_reason || null
     }
   }
+  if (event.type === 'repo_baseline_changed') {
+    return {
+      id: event.id,
+      timestamp: event.timestamp,
+      label: 'Repo baseline',
+      value: metadata.dirty_start_state || 'baseline updated',
+      detail: metadata.changed_since_start_reason || metadata.dirty_start_reason || null
+    }
+  }
   if (event.type === 'attachment_changed') {
     return {
       id: event.id,
@@ -1600,6 +1609,14 @@ export default function App() {
                   <span className="overview-label">Isolation policy</span>
                   <span className="overview-value">{isolationStateLabel(detail?.isolation_state || selectedSession.isolation_state)}</span>
                 </div>
+                <div className="overview-item">
+                  <span className="overview-label">Start baseline</span>
+                  <span className="overview-value">{detail?.dirty_start_state || selectedSession.dirty_start_state || 'clean'}</span>
+                </div>
+                <div className="overview-item">
+                  <span className="overview-label">Drift since start</span>
+                  <span className="overview-value">{(detail?.changed_since_start ?? selectedSession.changed_since_start) ? 'changed' : 'matches start'}</span>
+                </div>
                 {(detail?.protected_branch_reason || selectedSession.protected_branch_reason) ? (
                   <div className="overview-item overview-item-wide">
                     <span className="overview-label">Protected branch reason</span>
@@ -1610,6 +1627,18 @@ export default function App() {
                   <div className="overview-item overview-item-wide">
                     <span className="overview-label">Isolation reason</span>
                     <span className="overview-value">{detail?.isolation_reason || selectedSession.isolation_reason}</span>
+                  </div>
+                ) : null}
+                {(detail?.dirty_start_reason || selectedSession.dirty_start_reason) ? (
+                  <div className="overview-item overview-item-wide">
+                    <span className="overview-label">Start baseline reason</span>
+                    <span className="overview-value">{detail?.dirty_start_reason || selectedSession.dirty_start_reason}</span>
+                  </div>
+                ) : null}
+                {(detail?.changed_since_start_reason || selectedSession.changed_since_start_reason) ? (
+                  <div className="overview-item overview-item-wide">
+                    <span className="overview-label">Drift reason</span>
+                    <span className="overview-value">{detail?.changed_since_start_reason || selectedSession.changed_since_start_reason}</span>
                   </div>
                 ) : null}
                 <div className="overview-item overview-item-wide">

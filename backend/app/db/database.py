@@ -62,6 +62,12 @@ def init_db() -> None:
               last_known_activity TEXT,
               changed_files_count INTEGER NOT NULL DEFAULT 0,
               changed_files_preview TEXT NOT NULL DEFAULT '[]',
+              initial_changed_files_count INTEGER NOT NULL DEFAULT 0,
+              initial_changed_files_preview TEXT NOT NULL DEFAULT '[]',
+              dirty_start_state TEXT NOT NULL DEFAULT 'clean',
+              dirty_start_reason TEXT,
+              changed_since_start INTEGER NOT NULL DEFAULT 0,
+              changed_since_start_reason TEXT,
               work_phase TEXT NOT NULL DEFAULT 'unknown',
               work_phase_confidence TEXT NOT NULL DEFAULT 'low',
               work_phase_reason TEXT,
@@ -178,6 +184,12 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
     alter_statements = [
         ("lint_status", "ALTER TABLE sessions ADD COLUMN lint_status TEXT"),
         ("work_phase", "ALTER TABLE sessions ADD COLUMN work_phase TEXT NOT NULL DEFAULT 'unknown'"),
+        ("initial_changed_files_count", "ALTER TABLE sessions ADD COLUMN initial_changed_files_count INTEGER NOT NULL DEFAULT 0"),
+        ("initial_changed_files_preview", "ALTER TABLE sessions ADD COLUMN initial_changed_files_preview TEXT NOT NULL DEFAULT '[]'"),
+        ("dirty_start_state", "ALTER TABLE sessions ADD COLUMN dirty_start_state TEXT NOT NULL DEFAULT 'clean'"),
+        ("dirty_start_reason", "ALTER TABLE sessions ADD COLUMN dirty_start_reason TEXT"),
+        ("changed_since_start", "ALTER TABLE sessions ADD COLUMN changed_since_start INTEGER NOT NULL DEFAULT 0"),
+        ("changed_since_start_reason", "ALTER TABLE sessions ADD COLUMN changed_since_start_reason TEXT"),
         ("work_phase_confidence", "ALTER TABLE sessions ADD COLUMN work_phase_confidence TEXT NOT NULL DEFAULT 'low'"),
         ("work_phase_reason", "ALTER TABLE sessions ADD COLUMN work_phase_reason TEXT"),
         ("last_major_phase", "ALTER TABLE sessions ADD COLUMN last_major_phase TEXT NOT NULL DEFAULT 'unknown'"),
@@ -244,5 +256,5 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
                 if "duplicate column name" not in str(exc).lower():
                     raise
     conn.execute(
-        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), protected_branch_state = COALESCE(protected_branch_state, 'clear'), isolation_state = COALESCE(isolation_state, 'not_required'), validation_recipe_json = COALESCE(validation_recipe_json, '[]'), missing_validation_checks_json = COALESCE(missing_validation_checks_json, '[]'), optional_validation_checks_json = COALESCE(optional_validation_checks_json, '[]'), validation_policy_state = COALESCE(validation_policy_state, 'unknown'), review_readiness_state = COALESCE(review_readiness_state, 'unknown'), completion_state = COALESCE(completion_state, 'unknown'), last_green_changed_files_count = COALESCE(last_green_changed_files_count, 0), last_green_changed_files_preview = COALESCE(last_green_changed_files_preview, '[]'), changed_since_green_validation = COALESCE(changed_since_green_validation, 0), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none'), build_activity = COALESCE(build_activity, 'none')"
+        "UPDATE sessions SET updated_at = COALESCE(updated_at, created_at), observability = COALESCE(observability, 'full'), initial_changed_files_count = COALESCE(initial_changed_files_count, changed_files_count, 0), initial_changed_files_preview = COALESCE(initial_changed_files_preview, changed_files_preview, '[]'), dirty_start_state = CASE WHEN COALESCE(initial_changed_files_count, changed_files_count, 0) > 0 THEN COALESCE(dirty_start_state, 'dirty') ELSE COALESCE(dirty_start_state, 'clean') END, work_phase = COALESCE(work_phase, 'unknown'), work_phase_confidence = COALESCE(work_phase_confidence, 'low'), last_major_phase = COALESCE(last_major_phase, work_phase, 'unknown'), last_major_phase_confidence = COALESCE(last_major_phase_confidence, work_phase_confidence, 'low'), health_score = COALESCE(health_score, 0), health_label = CASE WHEN health_label = 'watch' THEN 'monitor' ELSE COALESCE(health_label, 'monitor') END, health_reason = COALESCE(health_reason, ''), priority_score = COALESCE(priority_score, 0), priority_reason = COALESCE(priority_reason, ''), repo_risk_label = COALESCE(repo_risk_label, 'low'), repo_risk_reason = COALESCE(repo_risk_reason, ''), repo_overlap_count = COALESCE(repo_overlap_count, 0), repo_overlap_preview = COALESCE(repo_overlap_preview, '[]'), protected_branch_state = COALESCE(protected_branch_state, 'clear'), isolation_state = COALESCE(isolation_state, 'not_required'), validation_recipe_json = COALESCE(validation_recipe_json, '[]'), missing_validation_checks_json = COALESCE(missing_validation_checks_json, '[]'), optional_validation_checks_json = COALESCE(optional_validation_checks_json, '[]'), validation_policy_state = COALESCE(validation_policy_state, 'unknown'), review_readiness_state = COALESCE(review_readiness_state, 'unknown'), completion_state = COALESCE(completion_state, 'unknown'), last_green_changed_files_count = COALESCE(last_green_changed_files_count, 0), last_green_changed_files_preview = COALESCE(last_green_changed_files_preview, '[]'), changed_since_green_validation = COALESCE(changed_since_green_validation, 0), changed_since_start = COALESCE(changed_since_start, 0), test_activity = COALESCE(test_activity, 'none'), lint_activity = COALESCE(lint_activity, 'none'), build_activity = COALESCE(build_activity, 'none')"
     )

@@ -191,6 +191,16 @@ def create_managed_session(
                 "last_known_activity": "Session created",
                 "changed_files_count": len(changed_files_preview),
                 "changed_files_preview": json.dumps(changed_files_preview[:10]),
+                "initial_changed_files_count": len(changed_files_preview),
+                "initial_changed_files_preview": json.dumps(changed_files_preview[:10]),
+                "dirty_start_state": "dirty" if changed_files_preview else "clean",
+                "dirty_start_reason": (
+                    f"repo started with {len(changed_files_preview)} changed files"
+                    if changed_files_preview
+                    else "repo started clean"
+                ),
+                "changed_since_start": 0,
+                "changed_since_start_reason": None,
                 "work_phase": "planning",
                 "work_phase_confidence": "low",
                 "work_phase_reason": None,
@@ -330,6 +340,7 @@ def adopt_session(
     branch = None
     validation_recipe_id = None
     validation_recipe_json = "[]"
+    changed_files_preview: list[str] = []
 
     try:
         branch = client.current_branch(repo, repo)
@@ -343,6 +354,10 @@ def adopt_session(
     except RunnerError:
         validation_recipe_id = None
         validation_recipe_json = "[]"
+    try:
+        changed_files_preview = client.changed_files(repo, repo)
+    except RunnerError:
+        changed_files_preview = []
 
     try:
         with get_conn() as conn:
@@ -369,8 +384,18 @@ def adopt_session(
                 "finished_at": None,
                 "last_activity_at": now,
                 "last_known_activity": "Adopted session",
-                "changed_files_count": 0,
-                "changed_files_preview": "[]",
+                "changed_files_count": len(changed_files_preview),
+                "changed_files_preview": json.dumps(changed_files_preview[:10]),
+                "initial_changed_files_count": len(changed_files_preview),
+                "initial_changed_files_preview": json.dumps(changed_files_preview[:10]),
+                "dirty_start_state": "dirty" if changed_files_preview else "clean",
+                "dirty_start_reason": (
+                    f"repo started with {len(changed_files_preview)} changed files"
+                    if changed_files_preview
+                    else "repo started clean"
+                ),
+                "changed_since_start": 0,
+                "changed_since_start_reason": None,
                 "work_phase": "unknown",
                 "work_phase_confidence": "low",
                 "work_phase_reason": None,

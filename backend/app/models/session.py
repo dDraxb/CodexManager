@@ -105,6 +105,12 @@ class SessionRecord:
     last_known_activity: str | None
     changed_files_count: int
     changed_files_preview: str
+    initial_changed_files_count: int
+    initial_changed_files_preview: str
+    dirty_start_state: str
+    dirty_start_reason: str | None
+    changed_since_start: int
+    changed_since_start_reason: str | None
     work_phase: str | None
     work_phase_confidence: str | None
     work_phase_reason: str | None

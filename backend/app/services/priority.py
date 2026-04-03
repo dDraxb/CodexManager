@@ -56,6 +56,8 @@ def assess_session_priority(
     changed_since_green_validation: int = 0,
     last_green_validation_kind: str | None = None,
     missing_validation_checks_count: int = 0,
+    dirty_start_state: str = "clean",
+    changed_since_start: int = 0,
     idle_age_seconds: int | None = None,
     needs_attention: int = 0,
     idle_threshold_seconds: int = 300,
@@ -78,6 +80,8 @@ def assess_session_priority(
         return PrioritySnapshot(74, "validation baseline is stale", f"repo changes no longer match the last green {kind} snapshot")
     if missing_validation_checks_count > 0:
         return PrioritySnapshot(66, "expected validation checks missing", f"the recipe still has {missing_validation_checks_count} unobserved required checks")
+    if dirty_start_state == "dirty" and changed_since_start:
+        return PrioritySnapshot(64, "dirty repo drifted further", "the repo started dirty and has diverged further since session start")
     if status == SessionStatus.WAITING_INPUT.value:
         return PrioritySnapshot(92, "waiting for user input", "the live session is waiting on an external response")
     if test_status == STATUS_FAILED or lint_status == STATUS_FAILED:

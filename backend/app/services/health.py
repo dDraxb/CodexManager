@@ -64,6 +64,8 @@ def assess_session_health(
     changed_since_green_validation: int = 0,
     last_green_validation_kind: str | None = None,
     missing_validation_checks_count: int = 0,
+    dirty_start_state: str = "clean",
+    changed_since_start: int = 0,
     idle_age_seconds: int | None = None,
     needs_attention: int = 0,
     idle_threshold_seconds: int = 300,
@@ -100,6 +102,10 @@ def assess_session_health(
         score = 64
         reason = "expected validation checks missing"
         evidence = f"the recipe still has {missing_validation_checks_count} unobserved required checks"
+    elif dirty_start_state == "dirty" and changed_since_start:
+        score = 61
+        reason = "dirty repo drifted further"
+        evidence = "the repo started dirty and has diverged further since session start"
     elif status == SessionStatus.WAITING_INPUT.value:
         score = 45
         reason = "awaiting user input"
