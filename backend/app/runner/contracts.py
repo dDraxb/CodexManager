@@ -38,6 +38,12 @@ class RunnerClient(Protocol):
     def materialize_validation_recipe(self, repo_path: str, recipe_json: str) -> str:
         """Write repo-local validation config for the effective recipe and return the file path."""
 
+    def inspect_codex_environment(self, repo_path: str | None) -> dict:
+        """Return global and workspace Codex environment metadata from the execution environment."""
+
+    def create_codex_skill(self, scope: str, name: str, summary: str, repo_path: str | None = None) -> dict:
+        """Create a global or workspace Codex skill scaffold and return its metadata."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

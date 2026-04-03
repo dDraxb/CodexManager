@@ -11,8 +11,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
-from app.services.codex_environment import inspect_codex_environment
-from app.services.codex_skills import CodexSkillError, create_codex_skill
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -33,6 +31,7 @@ from app.services.sessions import (
     stop_session,
 )
 from app.runner.client import get_runner_client
+from app.runner.contracts import RunnerError
 
 app = FastAPI(title="codex-session-manager")
 app.add_middleware(
@@ -159,19 +158,24 @@ def repo_policies() -> dict:
 
 @app.get("/api/codex-environment")
 def codex_environment(repo_path: str | None = None) -> dict:
-    return inspect_codex_environment(repo_path)
+    client = get_runner_client()
+    try:
+        return client.inspect_codex_environment(repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/codex-skills")
 def create_skill(request: CodexSkillCreateRequest) -> dict:
+    client = get_runner_client()
     try:
-        return create_codex_skill(
+        return client.create_codex_skill(
             scope=request.scope,
             name=request.name,
             summary=request.summary,
             repo_path=request.repo_path,
         )
-    except CodexSkillError as exc:
+    except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

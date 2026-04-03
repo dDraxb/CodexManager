@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
+from app.services.codex_skills import CodexSkillError, create_codex_skill
 from app.services.shell import ShellError, command_exists
 from app.services.tmux import attach_command as tmux_attach_command
 from app.services.tmux import capture_pane as tmux_capture_pane
@@ -129,6 +131,15 @@ class LocalRunnerClient(RunnerClient):
         config_path = root / ".codexmgr.validation.json"
         config_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return str(config_path)
+
+    def inspect_codex_environment(self, repo_path: str | None) -> dict:
+        return inspect_codex_environment(repo_path)
+
+    def create_codex_skill(self, scope: str, name: str, summary: str, repo_path: str | None = None) -> dict:
+        try:
+            return create_codex_skill(scope=scope, name=name, summary=summary, repo_path=repo_path)
+        except CodexSkillError as exc:
+            raise RunnerError(str(exc)) from exc
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         return find_recent_codex_session_id(cwd, prompt, since)
@@ -265,6 +276,20 @@ class RemoteRunnerClient(RunnerClient):
             {"repo_path": repo_path, "recipe_json": recipe_json},
         )
         return str(payload["config_path"])
+
+    def inspect_codex_environment(self, repo_path: str | None) -> dict:
+        return self._post("/inspect-codex-environment", {"repo_path": repo_path})
+
+    def create_codex_skill(self, scope: str, name: str, summary: str, repo_path: str | None = None) -> dict:
+        return self._post(
+            "/create-codex-skill",
+            {
+                "scope": scope,
+                "name": name,
+                "summary": summary,
+                "repo_path": repo_path,
+            },
+        )
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         payload = self._post(

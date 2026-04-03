@@ -76,6 +76,13 @@ class ValidationRecipeMaterializeRequest(BaseModel):
     recipe_json: str
 
 
+class CodexSkillCreateRequest(BaseModel):
+    scope: str
+    name: str
+    summary: str = ""
+    repo_path: str | None = None
+
+
 class TmuxSessionRequest(BaseModel):
     session_name: str
 
@@ -210,6 +217,29 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         require_auth(x_runner_api_key)
         config_path = runner_call(lambda: runner.materialize_validation_recipe(request.repo_path, request.recipe_json))
         return {"config_path": config_path}
+
+    @app.post("/inspect-codex-environment")
+    def inspect_codex_environment_endpoint(
+        request: RepoPathRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.inspect_codex_environment(request.repo_path))
+
+    @app.post("/create-codex-skill")
+    def create_codex_skill_endpoint(
+        request: CodexSkillCreateRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.create_codex_skill(
+                request.scope,
+                request.name,
+                request.summary,
+                request.repo_path,
+            )
+        )
 
     @app.post("/codex/find-recent-session")
     def find_recent_codex_session(
