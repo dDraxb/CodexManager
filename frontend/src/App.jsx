@@ -656,6 +656,7 @@ export default function App() {
   const [recipeDraft, setRecipeDraft] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [codexEnvironment, setCodexEnvironment] = useState(null)
   const [events, setEvents] = useState([])
   const [logs, setLogs] = useState([])
   const [validationHistory, setValidationHistory] = useState([])
@@ -850,6 +851,7 @@ export default function App() {
     if (!id) {
       loadedDetailSessionRef.current = null
       setDetail(null)
+      setCodexEnvironment(null)
       setEvents([])
       setValidationHistory([])
       setLogs([])
@@ -858,6 +860,7 @@ export default function App() {
     if (loadedDetailSessionRef.current !== id) {
       startTransition(() => {
         setDetail(null)
+        setCodexEnvironment(null)
         setEvents([])
         setValidationHistory([])
         setLogs([])
@@ -870,12 +873,16 @@ export default function App() {
         fetchJson(`/api/sessions/${id}/validation-history?limit=8`),
         fetchJson(`/api/sessions/${id}/logs?tail=120`)
       ])
+      const nextCodexEnvironment = await fetchJson(
+        `/api/codex-environment?repo_path=${encodeURIComponent((nextDetail.repo_path || '').trim())}`
+      )
       if (detailRequestRef.current !== requestId) {
         return
       }
       loadedDetailSessionRef.current = id
       startTransition(() => {
         setDetail(nextDetail)
+        setCodexEnvironment(nextCodexEnvironment)
         setEvents(nextEvents)
         setValidationHistory(nextValidationHistory)
         setLogs(trimTrailingBlankLines((nextLogs.lines || []).map(sanitizeLogLine)))
@@ -1656,6 +1663,22 @@ export default function App() {
                 <div className="overview-item overview-item-wide">
                   <span className="overview-label">Working directory</span>
                   <span className="overview-value">{selectedSession.repo_path}</span>
+                </div>
+                <div className="overview-item">
+                  <span className="overview-label">Codex config</span>
+                  <span className="overview-value">
+                    global {codexEnvironment?.globalConfig?.exists ? 'present' : 'missing'}
+                    {' · '}
+                    workspace {codexEnvironment?.workspaceConfig?.exists ? 'present' : 'missing'}
+                  </span>
+                </div>
+                <div className="overview-item">
+                  <span className="overview-label">Skill inventory</span>
+                  <span className="overview-value">
+                    global {codexEnvironment?.globalSkills?.length || 0}
+                    {' · '}
+                    workspace {codexEnvironment?.workspaceSkills?.length || 0}
+                  </span>
                 </div>
                 <div className="overview-item">
                   <span className="overview-label">Branch</span>

@@ -213,6 +213,31 @@ def test_api_lists_repo_policies(configured_modules, tmp_path, monkeypatch):
     assert response.json()["policies"][0]["policy_id"] == "php-main-guard"
 
 
+def test_api_returns_codex_environment(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codex_home = tmp_path / ".codex"
+    repo = tmp_path / "repo"
+    (codex_home / "skills" / "global-helper").mkdir(parents=True)
+    (codex_home / "skills" / "global-helper" / "SKILL.md").write_text("# Global\n", encoding="utf-8")
+    (codex_home / "config.toml").write_text("model = 'gpt-5.4'\n", encoding="utf-8")
+    (repo / ".codex" / "skills" / "repo-helper").mkdir(parents=True)
+    (repo / ".codex" / "skills" / "repo-helper" / "SKILL.md").write_text("# Repo\n", encoding="utf-8")
+    (repo / ".codex" / "config.toml").write_text("sandbox = 'workspace-write'\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get("/api/codex-environment", params={"repo_path": str(repo)})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["globalConfig"]["exists"] is True
+    assert payload["workspaceConfig"]["exists"] is True
+    assert payload["globalSkills"][0]["name"] == "global-helper"
+    assert payload["workspaceSkills"][0]["name"] == "repo-helper"
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
+from app.services.codex_environment import inspect_codex_environment
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -146,6 +147,11 @@ def validation_presets() -> dict:
 @app.get("/api/repo-policies")
 def repo_policies() -> dict:
     return {"policies": list_repo_policies()}
+
+
+@app.get("/api/codex-environment")
+def codex_environment(repo_path: str | None = None) -> dict:
+    return inspect_codex_environment(repo_path)
 
 
 @app.post("/api/validation-presets/apply")
