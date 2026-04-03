@@ -33,6 +33,11 @@ const EMPTY_CONFIG_EDITOR = {
   workspace: null
 }
 
+const EMPTY_RULES_EDITOR = {
+  global: null,
+  workspace: null
+}
+
 const COMMAND_TABS = [
   { id: 'create', label: 'New session' },
   { id: 'adopt', label: 'Adopt session' },
@@ -680,6 +685,8 @@ export default function App() {
   const [skillForm, setSkillForm] = useState(EMPTY_SKILL_FORM)
   const [codexConfigs, setCodexConfigs] = useState(EMPTY_CONFIG_EDITOR)
   const [activeConfigScope, setActiveConfigScope] = useState('global')
+  const [codexRules, setCodexRules] = useState(EMPTY_RULES_EDITOR)
+  const [activeRulesScope, setActiveRulesScope] = useState('workspace')
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [sessionQuery, setSessionQuery] = useState('')
@@ -1295,6 +1302,40 @@ export default function App() {
     }
   }
 
+  async function loadCodexRules(scope) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () => fetchJson(`/api/codex-rules?scope=${encodeURIComponent(scope)}&repo_path=${encodeURIComponent(repoPath)}`),
+      null
+    )
+    if (!payload) return
+    setCodexRules((current) => ({
+      ...current,
+      [scope]: payload
+    }))
+  }
+
+  async function saveCodexRules(scope) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const rules = codexRules[scope]
+    if (!rules) return
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            content: rules.content,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (result) => `Saved ${scope} Codex rules at ${result.path}`
+    )
+    if (!payload) return
+    await loadCodexRules(scope)
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -1370,6 +1411,12 @@ export default function App() {
       loadCodexConfig('workspace')
     } else {
       setCodexConfigs((current) => ({ ...current, workspace: null }))
+    }
+    loadCodexRules('global')
+    if (detail?.repo_path || selectedSession?.repo_path) {
+      loadCodexRules('workspace')
+    } else {
+      setCodexRules((current) => ({ ...current, workspace: null }))
     }
   }, [commandTab, detail?.repo_path, selectedSession?.repo_path, showCommandPanel])
 
@@ -1762,6 +1809,41 @@ export default function App() {
                   </div>
                 ) : (
                   <p className="muted">Load a global or workspace config to edit it here.</p>
+                )}
+              </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Instruction Rules</p>
+                    <p className="muted">Edit global or repo-level AGENTS.md guidance on the execution host.</p>
+                  </div>
+                  <div className="row">
+                    <button type="button" className={`ghost ${activeRulesScope === 'global' ? 'active-filter' : ''}`} onClick={() => setActiveRulesScope('global')}>Global</button>
+                    <button type="button" className={`ghost ${activeRulesScope === 'workspace' ? 'active-filter' : ''}`} onClick={() => setActiveRulesScope('workspace')} disabled={!(detail?.repo_path || selectedSession?.repo_path)}>Workspace</button>
+                  </div>
+                </div>
+                {codexRules[activeRulesScope] ? (
+                  <div className="stack-form">
+                    <p className="muted">
+                      {codexRules[activeRulesScope].exists
+                        ? `Editing ${codexRules[activeRulesScope].path}`
+                        : `No rules file exists yet. Saving will create ${codexRules[activeRulesScope].path}`}
+                    </p>
+                    <textarea
+                      rows="10"
+                      value={codexRules[activeRulesScope].content}
+                      onChange={(event) => setCodexRules((current) => ({
+                        ...current,
+                        [activeRulesScope]: {
+                          ...current[activeRulesScope],
+                          content: event.target.value
+                        }
+                      }))}
+                    />
+                    <button type="button" className="primary" onClick={() => saveCodexRules(activeRulesScope)}>Save rules</button>
+                  </div>
+                ) : (
+                  <p className="muted">Load a global or workspace rules file to edit it here.</p>
                 )}
               </div>
             </div>

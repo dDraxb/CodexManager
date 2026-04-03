@@ -11,6 +11,7 @@ from app.runner.contracts import RunnerClient, RunnerError
 from app.services.codex_config import CodexConfigError, read_codex_config, write_codex_config
 from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
+from app.services.codex_rules import CodexRulesError, read_codex_rules, write_codex_rules
 from app.services.codex_skills import CodexSkillError, create_codex_skill
 from app.services.shell import ShellError, command_exists
 from app.services.tmux import attach_command as tmux_attach_command
@@ -152,6 +153,18 @@ class LocalRunnerClient(RunnerClient):
         try:
             return write_codex_config(scope=scope, content=content, repo_path=repo_path)
         except CodexConfigError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def read_codex_rules(self, scope: str, repo_path: str | None = None) -> dict:
+        try:
+            return read_codex_rules(scope=scope, repo_path=repo_path)
+        except CodexRulesError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def write_codex_rules(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        try:
+            return write_codex_rules(scope=scope, content=content, repo_path=repo_path)
+        except CodexRulesError as exc:
             raise RunnerError(str(exc)) from exc
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
@@ -310,6 +323,15 @@ class RemoteRunnerClient(RunnerClient):
     def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         return self._post(
             "/write-codex-config",
+            {"scope": scope, "content": content, "repo_path": repo_path},
+        )
+
+    def read_codex_rules(self, scope: str, repo_path: str | None = None) -> dict:
+        return self._post("/read-codex-rules", {"scope": scope, "repo_path": repo_path})
+
+    def write_codex_rules(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        return self._post(
+            "/write-codex-rules",
             {"scope": scope, "content": content, "repo_path": repo_path},
         )
 

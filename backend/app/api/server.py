@@ -90,6 +90,12 @@ class CodexConfigWriteRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexRulesWriteRequest(BaseModel):
+    scope: str
+    content: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -199,6 +205,24 @@ def save_codex_config(request: CodexConfigWriteRequest) -> dict:
     client = get_runner_client()
     try:
         return client.write_codex_config(request.scope, request.content, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/codex-rules")
+def codex_rules(scope: str, repo_path: str | None = None) -> dict:
+    client = get_runner_client()
+    try:
+        return client.read_codex_rules(scope, repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-rules")
+def save_codex_rules(request: CodexRulesWriteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.write_codex_rules(request.scope, request.content, request.repo_path)
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -294,6 +294,36 @@ def test_api_reads_and_writes_workspace_codex_config(configured_modules, tmp_pat
     assert "gpt-5.4" in payload["content"]
 
 
+def test_api_reads_and_writes_workspace_codex_rules(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    write_response = client.post(
+        "/api/codex-rules",
+        json={
+            "scope": "workspace",
+            "content": "# Repo Rules\n\n- Always run tests.\n",
+            "repoPath": str(repo),
+        },
+    )
+    assert write_response.status_code == 200, write_response.text
+
+    read_response = client.get(
+        "/api/codex-rules",
+        params={"scope": "workspace", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200
+    payload = read_response.json()
+    assert payload["exists"] is True
+    assert "Always run tests" in payload["content"]
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

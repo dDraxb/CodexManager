@@ -50,6 +50,12 @@ class RunnerClient(Protocol):
     def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         """Write global or workspace Codex config content and return saved metadata."""
 
+    def read_codex_rules(self, scope: str, repo_path: str | None = None) -> dict:
+        """Read global or workspace Codex instruction rules."""
+
+    def write_codex_rules(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        """Write global or workspace Codex instruction rules."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 
