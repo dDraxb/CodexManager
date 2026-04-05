@@ -61,6 +61,21 @@ const EMPTY_SKILL_EDITOR = {
   backups: []
 }
 
+const EMPTY_PROMPT_FORM = {
+  scope: 'global',
+  name: '',
+  content: ''
+}
+
+const EMPTY_PROMPT_EDITOR = {
+  scope: 'global',
+  name: '',
+  path: '',
+  exists: false,
+  content: '',
+  backups: []
+}
+
 const EMPTY_MCP_FORM = {
   scope: 'global',
   name: '',
@@ -722,6 +737,8 @@ export default function App() {
   const [activeAgentName, setActiveAgentName] = useState('')
   const [agentConfig, setAgentConfig] = useState(EMPTY_AGENT_CONFIG)
   const [skillEditor, setSkillEditor] = useState(EMPTY_SKILL_EDITOR)
+  const [promptForm, setPromptForm] = useState(EMPTY_PROMPT_FORM)
+  const [promptEditor, setPromptEditor] = useState(EMPTY_PROMPT_EDITOR)
   const [codexMcp, setCodexMcp] = useState({ global: [], workspace: [] })
   const [mcpForm, setMcpForm] = useState(EMPTY_MCP_FORM)
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
@@ -1383,6 +1400,123 @@ export default function App() {
     if (!payload) return
     if (skillEditor.scope === scope && skillEditor.name === name) {
       setSkillEditor(EMPTY_SKILL_EDITOR)
+    }
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+  }
+
+  async function loadCodexPrompt(scope, name) {
+    if (!name) {
+      setPromptEditor(EMPTY_PROMPT_EDITOR)
+      return
+    }
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson(
+          `/api/codex-prompt?scope=${encodeURIComponent(scope)}&name=${encodeURIComponent(name)}&repo_path=${encodeURIComponent(repoPath)}`
+        ),
+      null
+    )
+    if (!payload) return
+    setPromptEditor(payload)
+  }
+
+  async function createCodexPrompt(event) {
+    event.preventDefault()
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = {
+      scope: promptForm.scope,
+      name: promptForm.name.trim(),
+      content: promptForm.content,
+      repoPath: promptForm.scope === 'workspace' ? repoPath : null
+    }
+    if (!payload.name) {
+      notify('error', 'Prompt name is required')
+      return
+    }
+    if (payload.scope === 'workspace' && !payload.repoPath) {
+      notify('error', 'Select a session with a working directory for workspace prompts')
+      return
+    }
+    const result = await runRequest(
+      () =>
+        fetchJson('/api/codex-prompts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }),
+      (created) => `Created ${created.scope} prompt ${created.name}`
+    )
+    if (!result) return
+    setPromptForm((prev) => ({ ...EMPTY_PROMPT_FORM, scope: prev.scope }))
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+    await loadCodexPrompt(result.scope, result.name)
+  }
+
+  async function saveCodexPrompt() {
+    if (!promptEditor.name) return
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-prompt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: promptEditor.scope,
+            name: promptEditor.name,
+            content: promptEditor.content,
+            repoPath: promptEditor.scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (saved) => `Saved ${saved.scope} prompt ${saved.name}`
+    )
+    if (!payload) return
+    await loadCodexPrompt(promptEditor.scope, promptEditor.name)
+  }
+
+  async function restoreCodexPrompt(backupPath) {
+    if (!promptEditor.name) return
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-prompt/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: promptEditor.scope,
+            name: promptEditor.name,
+            backupPath,
+            repoPath: promptEditor.scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (restored) => `Restored ${restored.scope} prompt ${restored.name}`
+    )
+    if (!payload) return
+    await loadCodexPrompt(promptEditor.scope, promptEditor.name)
+  }
+
+  async function deleteCodexPrompt(scope, name) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-prompt/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            name,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (removed) => `Deleted ${removed.scope} prompt ${removed.name}`
+    )
+    if (!payload) return
+    if (promptEditor.scope === scope && promptEditor.name === name) {
+      setPromptEditor(EMPTY_PROMPT_EDITOR)
     }
     if (selectedSession?.id) {
       await loadDetail(selectedSession.id)
@@ -2156,6 +2290,43 @@ export default function App() {
                     ) : null}
                   </div>
                 </div>
+                <div className="history-item">
+                  <div className="row between">
+                    <strong>Prompt assets</strong>
+                    <span className="badge badge-running">
+                      {`${codexEnvironment?.globalPrompts?.length || 0} global · ${codexEnvironment?.workspacePrompts?.length || 0} workspace`}
+                    </span>
+                  </div>
+                  <div className="history-list">
+                    {(codexEnvironment?.globalPrompts || []).map((prompt) => (
+                      <div key={`global-prompt-${prompt.name}`} className="history-item">
+                        <div className="row between">
+                          <strong>{prompt.name}</strong>
+                          <div className="row gap-sm">
+                            <span className="badge badge-stopped">global</span>
+                            <button type="button" className="ghost" onClick={() => loadCodexPrompt('global', prompt.name)}>Edit</button>
+                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexPrompt('global', prompt.name)}>Delete</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {(codexEnvironment?.workspacePrompts || []).map((prompt) => (
+                      <div key={`workspace-prompt-${prompt.name}`} className="history-item">
+                        <div className="row between">
+                          <strong>{prompt.name}</strong>
+                          <div className="row gap-sm">
+                            <span className="badge badge-stopped">workspace</span>
+                            <button type="button" className="ghost" onClick={() => loadCodexPrompt('workspace', prompt.name)}>Edit</button>
+                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexPrompt('workspace', prompt.name)}>Delete</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {!(codexEnvironment?.globalPrompts || []).length && !(codexEnvironment?.workspacePrompts || []).length ? (
+                      <p className="muted">No prompt assets yet.</p>
+                    ) : null}
+                  </div>
+                </div>
               </div>
               <form className="stack-form" onSubmit={createCodexSkill}>
                 <div className="command-settings-grid adopt-settings-grid">
@@ -2213,6 +2384,69 @@ export default function App() {
                               <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
                             </div>
                             <button type="button" className="ghost" onClick={() => restoreCodexSkill(backup.path)}>Restore this backup</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              <form className="stack-form" onSubmit={createCodexPrompt}>
+                <div className="command-settings-grid adopt-settings-grid">
+                  <label className="field">
+                    <span>Prompt scope</span>
+                    <select value={promptForm.scope} onChange={(event) => setPromptForm((prev) => ({ ...prev, scope: event.target.value }))}>
+                      <option value="global">global</option>
+                      <option value="workspace">workspace</option>
+                    </select>
+                  </label>
+                  <div className="helper-copy">
+                    <span className="field-label">Creation target</span>
+                    <p className="muted">
+                      {promptForm.scope === 'workspace'
+                        ? `Workspace prompts are created under ${(detail?.repo_path || selectedSession?.repo_path || 'the selected repo')}/.codex/prompts`
+                        : `Global prompts are created under ${codexEnvironment?.codexHome || '~/.codex'}/prompts`}
+                    </p>
+                  </div>
+                </div>
+                <div className="command-form-grid">
+                  <input placeholder="Prompt name (e.g. safe-investigation)" value={promptForm.name} onChange={(event) => setPromptForm((prev) => ({ ...prev, name: event.target.value }))} />
+                </div>
+                <textarea rows="6" placeholder="Initial prompt content (optional)" value={promptForm.content} onChange={(event) => setPromptForm((prev) => ({ ...prev, content: event.target.value }))} />
+                <button type="submit" className="primary">Create prompt asset</button>
+              </form>
+              {promptEditor.name ? (
+                <div className="history-browser">
+                  <div className="row between history-browser-head">
+                    <div>
+                      <p className="eyebrow">Prompt Editor</p>
+                      <p className="muted">
+                        {promptEditor.exists
+                          ? `Editing ${promptEditor.path}`
+                          : `No prompt asset exists yet. Saving will create ${promptEditor.path}`}
+                      </p>
+                    </div>
+                    <span className="badge badge-running">{`${promptEditor.scope} · ${promptEditor.name}`}</span>
+                  </div>
+                  <div className="stack-form">
+                    <textarea
+                      rows="10"
+                      value={promptEditor.content}
+                      onChange={(event) => setPromptEditor((current) => ({
+                        ...current,
+                        content: event.target.value
+                      }))}
+                    />
+                    <button type="button" className="primary" onClick={() => saveCodexPrompt()}>Save prompt</button>
+                    {promptEditor.backups?.length ? (
+                      <div className="history-list">
+                        {promptEditor.backups.slice(0, 5).map((backup) => (
+                          <div key={backup.path} className="history-item">
+                            <div className="row between">
+                              <strong>{backup.name}</strong>
+                              <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                            </div>
+                            <button type="button" className="ghost" onClick={() => restoreCodexPrompt(backup.path)}>Restore this backup</button>
                           </div>
                         ))}
                       </div>

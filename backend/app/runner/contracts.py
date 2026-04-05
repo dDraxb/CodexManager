@@ -56,6 +56,24 @@ class RunnerClient(Protocol):
     def delete_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
         """Delete a global or workspace Codex skill directory."""
 
+    def list_codex_prompts(self, scope: str, repo_path: str | None = None) -> list[dict]:
+        """List global or workspace Codex prompt assets."""
+
+    def create_codex_prompt(self, scope: str, name: str, content: str = "", repo_path: str | None = None) -> dict:
+        """Create a global or workspace Codex prompt asset."""
+
+    def read_codex_prompt(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        """Read a Codex prompt asset."""
+
+    def write_codex_prompt(self, scope: str, name: str, content: str, repo_path: str | None = None) -> dict:
+        """Write a Codex prompt asset."""
+
+    def restore_codex_prompt(self, scope: str, name: str, backup_path: str, repo_path: str | None = None) -> dict:
+        """Restore a Codex prompt asset from backup."""
+
+    def delete_codex_prompt(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        """Delete a Codex prompt asset."""
+
     def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
         """Read global or workspace Codex config content from the execution environment."""
 

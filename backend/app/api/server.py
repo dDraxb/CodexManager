@@ -104,6 +104,26 @@ class CodexSkillDeleteRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexPromptWriteRequest(BaseModel):
+    scope: str
+    name: str
+    content: str = ""
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class CodexPromptRestoreRequest(BaseModel):
+    scope: str
+    name: str
+    backup_path: str = Field(alias="backupPath")
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class CodexPromptDeleteRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
 class CodexConfigWriteRequest(BaseModel):
     scope: str
     content: str
@@ -286,6 +306,60 @@ def delete_codex_skill_api(request: CodexSkillDeleteRequest) -> dict:
     client = get_runner_client()
     try:
         return client.delete_codex_skill(request.scope, request.name, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/codex-prompts")
+def codex_prompts(scope: str, repo_path: str | None = None) -> dict:
+    client = get_runner_client()
+    try:
+        return {"prompts": client.list_codex_prompts(scope, repo_path)}
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-prompts")
+def create_codex_prompt_api(request: CodexPromptWriteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.create_codex_prompt(request.scope, request.name, request.content, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/codex-prompt")
+def codex_prompt(scope: str, name: str, repo_path: str | None = None) -> dict:
+    client = get_runner_client()
+    try:
+        return client.read_codex_prompt(scope, name, repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-prompt")
+def save_codex_prompt(request: CodexPromptWriteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.write_codex_prompt(request.scope, request.name, request.content, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-prompt/restore")
+def restore_codex_prompt_api(request: CodexPromptRestoreRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.restore_codex_prompt(request.scope, request.name, request.backup_path, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-prompt/delete")
+def delete_codex_prompt_api(request: CodexPromptDeleteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.delete_codex_prompt(request.scope, request.name, request.repo_path)
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

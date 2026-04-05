@@ -109,6 +109,37 @@ class CodexSkillDeleteRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexPromptReadRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = None
+
+
+class CodexPromptWriteRequest(BaseModel):
+    scope: str
+    name: str
+    content: str = ""
+    repo_path: str | None = None
+
+
+class CodexPromptRestoreRequest(BaseModel):
+    scope: str
+    name: str
+    backup_path: str
+    repo_path: str | None = None
+
+
+class CodexPromptDeleteRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = None
+
+
+class CodexPromptListRequest(BaseModel):
+    scope: str
+    repo_path: str | None = None
+
+
 class CodexConfigReadRequest(BaseModel):
     scope: str
     repo_path: str | None = None
@@ -374,6 +405,56 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     ) -> dict:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.delete_codex_skill(request.scope, request.name, request.repo_path))
+
+    @app.post("/list-codex-prompts")
+    def list_codex_prompts_endpoint(
+        request: CodexPromptListRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return {"prompts": runner_call(lambda: runner.list_codex_prompts(request.scope, request.repo_path))}
+
+    @app.post("/create-codex-prompt")
+    def create_codex_prompt_endpoint(
+        request: CodexPromptWriteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.create_codex_prompt(request.scope, request.name, request.content, request.repo_path))
+
+    @app.post("/read-codex-prompt")
+    def read_codex_prompt_endpoint(
+        request: CodexPromptReadRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.read_codex_prompt(request.scope, request.name, request.repo_path))
+
+    @app.post("/write-codex-prompt")
+    def write_codex_prompt_endpoint(
+        request: CodexPromptWriteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.write_codex_prompt(request.scope, request.name, request.content, request.repo_path))
+
+    @app.post("/restore-codex-prompt")
+    def restore_codex_prompt_endpoint(
+        request: CodexPromptRestoreRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.restore_codex_prompt(request.scope, request.name, request.backup_path, request.repo_path)
+        )
+
+    @app.post("/delete-codex-prompt")
+    def delete_codex_prompt_endpoint(
+        request: CodexPromptDeleteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.delete_codex_prompt(request.scope, request.name, request.repo_path))
 
     @app.post("/read-codex-config")
     def read_codex_config_endpoint(

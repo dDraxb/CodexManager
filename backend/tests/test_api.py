@@ -581,6 +581,90 @@ def test_api_reads_writes_and_deletes_codex_skill(configured_modules, tmp_path, 
     assert read_response.json()["exists"] is False
 
 
+def test_api_reads_writes_and_deletes_codex_prompt(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codex_home = tmp_path / ".codex"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    create_response = client.post(
+        "/api/codex-prompts",
+        json={
+            "scope": "workspace",
+            "name": "safe-investigation",
+            "content": "# Safe investigation\n",
+            "repoPath": str(repo),
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+
+    read_response = client.get(
+        "/api/codex-prompt",
+        params={"scope": "workspace", "name": "safe-investigation", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200, read_response.text
+    payload = read_response.json()
+    assert payload["name"] == "safe-investigation"
+    assert payload["content"].startswith("# Safe investigation")
+
+    write_response = client.post(
+        "/api/codex-prompt",
+        json={
+            "scope": "workspace",
+            "name": "safe-investigation",
+            "content": "# Updated prompt\n",
+            "repoPath": str(repo),
+        },
+    )
+    assert write_response.status_code == 200, write_response.text
+
+    read_response = client.get(
+        "/api/codex-prompt",
+        params={"scope": "workspace", "name": "safe-investigation", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200, read_response.text
+    payload = read_response.json()
+    assert payload["content"].startswith("# Updated prompt")
+    assert payload["backups"]
+
+    restore_response = client.post(
+        "/api/codex-prompt/restore",
+        json={
+            "scope": "workspace",
+            "name": "safe-investigation",
+            "backupPath": payload["backups"][0]["path"],
+            "repoPath": str(repo),
+        },
+    )
+    assert restore_response.status_code == 200, restore_response.text
+
+    read_response = client.get(
+        "/api/codex-prompt",
+        params={"scope": "workspace", "name": "safe-investigation", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200, read_response.text
+    assert read_response.json()["content"].startswith("# Safe investigation")
+
+    delete_response = client.post(
+        "/api/codex-prompt/delete",
+        json={
+            "scope": "workspace",
+            "name": "safe-investigation",
+            "repoPath": str(repo),
+        },
+    )
+    assert delete_response.status_code == 200, delete_response.text
+
+    prompt_list_response = client.get("/api/codex-prompts", params={"scope": "workspace", "repo_path": str(repo)})
+    assert prompt_list_response.status_code == 200, prompt_list_response.text
+    assert prompt_list_response.json()["prompts"] == []
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 
