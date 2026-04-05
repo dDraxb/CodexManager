@@ -184,6 +184,69 @@ def test_api_lists_validation_presets(configured_modules, tmp_path, monkeypatch)
     assert response.json()["presets"][0]["id"] == "strict-node"
 
 
+def test_api_lists_codex_config_presets(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "config-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "safe-investigation": {
+                        "label": "Safe Investigation",
+                        "description": "Low-risk default config",
+                        "content": 'model = "gpt-5.4"\npersonality = "pragmatic"\n',
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get("/api/codex-config-presets")
+    assert response.status_code == 200
+    assert response.json()["presets"][0]["id"] == "safe-investigation"
+
+
+def test_api_applies_codex_config_preset(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    (codexmgr_home / "config-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "safe-investigation": {
+                        "label": "Safe Investigation",
+                        "content": 'model = "gpt-5.4"\npersonality = "pragmatic"\n',
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/codex-config-presets/apply",
+        json={"presetId": "safe-investigation", "scope": "global"},
+    )
+    assert response.status_code == 200, response.text
+    assert (codex_home / "config.toml").read_text(encoding="utf-8") == 'model = "gpt-5.4"\npersonality = "pragmatic"\n'
+
+
 def test_api_lists_repo_policies(configured_modules, tmp_path, monkeypatch):
     from app.api import server
 

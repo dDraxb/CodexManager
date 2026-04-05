@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
+from app.services.codex_config_presets import get_manager_codex_config_preset, list_manager_codex_config_presets
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -70,6 +71,12 @@ class CodexSessionLinkRequest(BaseModel):
 class ValidationPresetApplyRequest(BaseModel):
     repo_path: str = Field(alias="repoPath")
     preset_id: str = Field(alias="presetId")
+
+
+class CodexConfigPresetApplyRequest(BaseModel):
+    preset_id: str = Field(alias="presetId")
+    scope: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
 
 
 class ValidationRecipeMaterializeRequest(BaseModel):
@@ -244,6 +251,11 @@ def codex_history(query: str | None = None, cwd: str | None = None, limit: int =
 @app.get("/api/validation-presets")
 def validation_presets() -> dict:
     return {"presets": list_manager_validation_presets()}
+
+
+@app.get("/api/codex-config-presets")
+def codex_config_presets() -> dict:
+    return {"presets": list_manager_codex_config_presets()}
 
 
 @app.get("/api/repo-policies")
@@ -529,6 +541,16 @@ def apply_validation_preset(request: ValidationPresetApplyRequest) -> dict:
     client = get_runner_client()
     config_path = client.apply_validation_preset(request.repo_path, request.preset_id)
     return {"configPath": config_path}
+
+
+@app.post("/api/codex-config-presets/apply")
+def apply_codex_config_preset(request: CodexConfigPresetApplyRequest) -> dict:
+    client = get_runner_client()
+    try:
+        preset = get_manager_codex_config_preset(request.preset_id)
+        return client.write_codex_config(request.scope, preset["content"], request.repo_path)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/validation-recipes/materialize")

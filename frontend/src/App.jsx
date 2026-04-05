@@ -721,8 +721,10 @@ export default function App() {
   const [summary, setSummary] = useState({ total: 0, counts: {}, needsAttention: 0 })
   const [sessions, setSessions] = useState([])
   const [validationPresets, setValidationPresets] = useState([])
+  const [configPresets, setConfigPresets] = useState([])
   const [repoPolicies, setRepoPolicies] = useState([])
   const [selectedValidationPreset, setSelectedValidationPreset] = useState('')
+  const [selectedConfigPreset, setSelectedConfigPreset] = useState('')
   const [recipeDraft, setRecipeDraft] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
@@ -881,6 +883,19 @@ export default function App() {
   }, [validationPresets])
 
   useEffect(() => {
+    if (!configPresets.length) {
+      setSelectedConfigPreset('')
+      return
+    }
+    setSelectedConfigPreset((current) => {
+      if (current && configPresets.some((preset) => preset.id === current)) {
+        return current
+      }
+      return configPresets[0].id
+    })
+  }, [configPresets])
+
+  useEffect(() => {
     setRecipeDraft(createRecipeDraft(validationRecipe))
   }, [detail?.validation_recipe_json, selectedSession?.validation_recipe_json])
 
@@ -911,16 +926,18 @@ export default function App() {
   async function loadAll() {
     try {
       setError('')
-      const [nextSummary, rows, presetPayload, repoPolicyPayload] = await Promise.all([
+      const [nextSummary, rows, presetPayload, configPresetPayload, repoPolicyPayload] = await Promise.all([
         fetchJson('/api/summary'),
         fetchJson('/api/sessions'),
         fetchJson('/api/validation-presets'),
+        fetchJson('/api/codex-config-presets'),
         fetchJson('/api/repo-policies')
       ])
       startTransition(() => {
         setSummary(nextSummary)
         setSessions(rows)
         setValidationPresets(presetPayload.presets || [])
+        setConfigPresets(configPresetPayload.presets || [])
         setRepoPolicies(repoPolicyPayload.policies || [])
       })
     } catch (err) {
@@ -1609,6 +1626,43 @@ export default function App() {
     )
     if (!payload) return
     setConfigPreview(payload)
+  }
+
+  function loadCodexConfigPreset(scope) {
+    const preset = configPresets.find((item) => item.id === selectedConfigPreset)
+    if (!preset) {
+      notify('error', 'Select a config preset first')
+      return
+    }
+    setCodexConfigs((current) => ({
+      ...current,
+      [scope]: {
+        ...current[scope],
+        content: preset.content
+      }
+    }))
+    notify('success', `Loaded config preset ${preset.id} into the ${scope} editor`)
+  }
+
+  async function applyCodexConfigPreset(scope) {
+    if (!selectedConfigPreset) {
+      notify('error', 'Select a config preset first')
+      return
+    }
+    const repoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
+    const payload = {
+      scope,
+      presetId: selectedConfigPreset,
+      repoPath: scope === 'workspace' ? repoPath : null
+    }
+    await runRequest(
+      () => fetchJson('/api/codex-config-presets/apply', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+      () => `Applied config preset ${selectedConfigPreset} to ${scope} config`
+    )
+    await loadCodexConfig(scope)
   }
 
   async function loadCodexRules(scope) {
@@ -2523,6 +2577,38 @@ export default function App() {
                         ? `Editing ${codexConfigs[activeConfigScope].path}`
                         : `No config exists yet. Saving will create ${codexConfigs[activeConfigScope].path}`}
                     </p>
+                    {configPresets.length ? (
+                      <div className="stack-form">
+                        <p className="muted">Manager config presets: {configPresets.map((preset) => preset.id).join(', ')}</p>
+                        <div className="command-settings-grid adopt-settings-grid">
+                          <label className="field">
+                            <span>Config preset</span>
+                            <select value={selectedConfigPreset} onChange={(event) => setSelectedConfigPreset(event.target.value)}>
+                              {configPresets.map((preset) => (
+                                <option key={preset.id} value={preset.id}>{preset.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="helper-copy">
+                            <span className="field-label">Preset summary</span>
+                            <p className="muted">
+                              {configPresets.find((preset) => preset.id === selectedConfigPreset)?.description || 'Load a preset into the editor or apply it directly to the selected scope.'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="row gap-sm">
+                          <button type="button" className="ghost" onClick={() => loadCodexConfigPreset(activeConfigScope)}>Load preset into editor</button>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => applyCodexConfigPreset(activeConfigScope)}
+                            disabled={activeConfigScope === 'workspace' && !(detail?.repo_path || selectedSession?.repo_path)}
+                          >
+                            Apply preset now
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     <textarea
                       rows="10"
                       value={codexConfigs[activeConfigScope].content}
