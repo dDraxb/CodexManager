@@ -76,24 +76,37 @@ Open:
 http://127.0.0.1:8791/
 ```
 
-To keep execution on the host while the dashboard runs in Docker, start the host runner first:
+To keep execution on the host while the dashboard runs in Docker, use the durable stack commands:
 
 ```bash
-cd backend
-source .venv/bin/activate
-export RUNNER_API_KEY=dev-runner-key
-codexmgr runner --host 0.0.0.0 --port 8788
+./bin/start_stack.sh
 ```
 
-Then point the containerized API at that host runner:
+This starts:
+- a detached tmux-hosted runner on `0.0.0.0:8788`
+- the Docker dashboard on `127.0.0.1:8791`
+
+Useful companion commands:
+
+```bash
+./bin/restart_stack.sh
+./bin/stop_stack.sh
+```
+
+Default behavior:
+- runner tmux session: `codexmgr-host-runner`
+- shared manager home: `${HOME}/.codexmgr`
+- runner log: `${HOME}/.codexmgr/logs/runner.log`
+
+Override points if needed:
 
 ```bash
 export CODEXMGR_HOST_HOME=/tmp/codexmgr-shared
 export CODEXMGR_CONTAINER_HOME=/tmp/codexmgr-shared
-mkdir -p "$CODEXMGR_HOST_HOME"
-export RUNNER_BASE_URL=http://host.docker.internal:8788
 export RUNNER_API_KEY=dev-runner-key
-docker compose up -d --build
+export CODEXMGR_HOST_PORT=8791
+export RUNNER_PORT=8788
+./bin/start_stack.sh
 ```
 
 In this mode the dashboard/API stays in Docker, while `tmux`, `codex`, and git worktree operations execute on the host runner. The shared `CODEXMGR_HOME` path keeps logs and session artifacts readable from both sides.
@@ -108,7 +121,7 @@ docker compose -f docker-compose.yml -f docker-compose.repos.yml up -d --build
 
 This keeps host-path mapping explicit and avoids hardcoded machine-specific paths.
 
-Stop:
+Manual Docker-only stop:
 
 ```bash
 docker compose down
