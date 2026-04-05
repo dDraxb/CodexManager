@@ -137,6 +137,12 @@ class CodexMcpCreateRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexMcpDeleteRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = None
+
+
 class TmuxSessionRequest(BaseModel):
     session_name: str
 
@@ -381,6 +387,14 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
                 request.repo_path,
             )
         )
+
+    @app.post("/delete-codex-mcp-server")
+    def delete_codex_mcp_server_endpoint(
+        request: CodexMcpDeleteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.delete_codex_mcp_server(request.scope, request.name, request.repo_path))
 
     @app.post("/codex/find-recent-session")
     def find_recent_codex_session(

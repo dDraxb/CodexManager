@@ -12,6 +12,26 @@ class CodexMcpError(RuntimeError):
     pass
 
 
+def _remove_mcp_block(content: str, normalized_name: str) -> str:
+    target_prefix = f'[mcp_servers."{normalized_name}"'
+    lines = content.splitlines()
+    kept: list[str] = []
+    skipping = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if stripped.startswith(target_prefix):
+                skipping = True
+                continue
+            if skipping:
+                skipping = False
+        if not skipping:
+            kept.append(line)
+
+    return "\n".join(kept).rstrip() + "\n"
+
+
 def list_codex_mcp_servers(*, scope: str, repo_path: str | None = None) -> dict:
     path = _config_path(scope, repo_path)
     if not path.exists():
@@ -84,6 +104,29 @@ def create_codex_mcp_server(
             block_lines.append(f"{key} = {json.dumps(value)}")
 
     path.write_text(original.rstrip() + "\n" + "\n".join(block_lines) + "\n", encoding="utf-8")
+    return {
+        "scope": scope,
+        "path": str(path),
+        "backupPath": backup_path,
+        "name": normalized_name,
+    }
+
+
+def delete_codex_mcp_server(*, scope: str, name: str, repo_path: str | None = None) -> dict:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise CodexMcpError("MCP server name is required")
+    try:
+        existing = list_codex_mcp_servers(scope=scope, repo_path=repo_path)
+    except CodexConfigError as exc:
+        raise CodexMcpError(str(exc)) from exc
+    if not any(server["name"] == normalized_name for server in existing["servers"]):
+        raise CodexMcpError(f"MCP server '{normalized_name}' does not exist")
+
+    path = Path(existing["path"])
+    original = path.read_text(encoding="utf-8")
+    backup_path = backup_file(path)
+    path.write_text(_remove_mcp_block(original, normalized_name), encoding="utf-8")
     return {
         "scope": scope,
         "path": str(path),

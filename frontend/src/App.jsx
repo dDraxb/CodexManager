@@ -1467,6 +1467,30 @@ export default function App() {
     }
   }
 
+  async function deleteCodexMcpServer(scope, name) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-mcp/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            name,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (removed) => `Removed ${removed.scope} MCP server ${removed.name}`
+    )
+    if (!payload) return
+    await loadCodexMcp(scope)
+    if (scope === 'global') {
+      await loadCodexConfig('global')
+    } else {
+      await loadCodexConfig('workspace')
+    }
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -1837,7 +1861,12 @@ export default function App() {
                     <div key={`${server.scope}-${server.name}`} className="history-item">
                       <div className="row between">
                         <strong>{server.name}</strong>
-                        <span className="badge badge-stopped">{server.scope}</span>
+                        <div className="row gap-sm">
+                          <span className="badge badge-stopped">{server.scope}</span>
+                          <button className="ghost danger-text" type="button" onClick={() => deleteCodexMcpServer(server.scope, server.name)}>
+                            Remove
+                          </button>
+                        </div>
                       </div>
                       <p className="muted">{server.command}{server.args?.length ? ` ${server.args.join(' ')}` : ''}</p>
                     </div>

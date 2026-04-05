@@ -123,6 +123,12 @@ class CodexMcpCreateRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexMcpDeleteRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -312,6 +318,15 @@ def create_codex_mcp_api(request: CodexMcpCreateRequest) -> dict:
             request.env,
             request.repo_path,
         )
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-mcp/delete")
+def delete_codex_mcp_api(request: CodexMcpDeleteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.delete_codex_mcp_server(request.scope, request.name, request.repo_path)
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

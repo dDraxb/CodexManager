@@ -427,6 +427,19 @@ def test_api_lists_and_creates_codex_mcp_servers(configured_modules, tmp_path, m
     payload = list_response.json()
     assert payload["servers"][0]["name"] == "firefox-devtools"
 
+    delete_response = client.post(
+        "/api/codex-mcp/delete",
+        json={
+            "scope": "global",
+            "name": "firefox-devtools",
+        },
+    )
+    assert delete_response.status_code == 200, delete_response.text
+
+    list_response = client.get("/api/codex-mcp", params={"scope": "global"})
+    assert list_response.status_code == 200
+    assert list_response.json()["servers"] == []
+
 
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server

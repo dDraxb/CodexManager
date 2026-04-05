@@ -83,6 +83,9 @@ class RunnerClient(Protocol):
     ) -> dict:
         """Create a Codex MCP server entry."""
 
+    def delete_codex_mcp_server(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        """Delete a Codex MCP server entry."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

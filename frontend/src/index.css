@@ -722,6 +722,10 @@ p {
   border-color: #8f4250;
 }
 
+.danger-text {
+  color: #ffb8c3;
+}
+
 .main-grid {
   margin-top: 14px;
   display: grid;
