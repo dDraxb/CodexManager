@@ -441,6 +441,59 @@ def test_api_lists_and_creates_codex_mcp_servers(configured_modules, tmp_path, m
     assert list_response.json()["servers"] == []
 
 
+def test_api_reads_and_writes_codex_agent_config(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codex_home = tmp_path / ".codex"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    create_response = client.post(
+        "/api/codex-agents",
+        json={
+            "name": "quality-helper",
+            "summary": "Quality helper",
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+
+    read_response = client.get("/api/codex-agent-config", params={"name": "quality-helper"})
+    assert read_response.status_code == 200, read_response.text
+    payload = read_response.json()
+    assert payload["name"] == "quality-helper"
+    assert 'model = "gpt-5.4"' in payload["content"]
+
+    write_response = client.post(
+        "/api/codex-agent-config",
+        json={
+            "name": "quality-helper",
+            "content": '# Updated\n\nmodel = "gpt-5.4"\n',
+        },
+    )
+    assert write_response.status_code == 200, write_response.text
+
+    read_response = client.get("/api/codex-agent-config", params={"name": "quality-helper"})
+    assert read_response.status_code == 200, read_response.text
+    payload = read_response.json()
+    assert payload["content"].startswith("# Updated")
+    assert payload["backups"]
+
+    restore_response = client.post(
+        "/api/codex-agent-config/restore",
+        json={
+            "name": "quality-helper",
+            "backupPath": payload["backups"][0]["path"],
+        },
+    )
+    assert restore_response.status_code == 200, restore_response.text
+
+    read_response = client.get("/api/codex-agent-config", params={"name": "quality-helper"})
+    assert read_response.status_code == 200, read_response.text
+    assert 'description = "Quality helper"' in read_response.json()["content"]
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

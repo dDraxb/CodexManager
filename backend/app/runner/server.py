@@ -122,6 +122,20 @@ class CodexAgentCreateRequest(BaseModel):
     summary: str = ""
 
 
+class CodexAgentConfigReadRequest(BaseModel):
+    name: str
+
+
+class CodexAgentConfigWriteRequest(BaseModel):
+    name: str
+    content: str
+
+
+class CodexAgentConfigRestoreRequest(BaseModel):
+    name: str
+    backup_path: str
+
+
 class CodexMcpListRequest(BaseModel):
     scope: str
     repo_path: str | None = None
@@ -361,6 +375,30 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     ) -> dict:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.create_codex_agent(request.name, request.summary))
+
+    @app.post("/read-codex-agent-config")
+    def read_codex_agent_config_endpoint(
+        request: CodexAgentConfigReadRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.read_codex_agent_config(request.name))
+
+    @app.post("/write-codex-agent-config")
+    def write_codex_agent_config_endpoint(
+        request: CodexAgentConfigWriteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.write_codex_agent_config(request.name, request.content))
+
+    @app.post("/restore-codex-agent-config")
+    def restore_codex_agent_config_endpoint(
+        request: CodexAgentConfigRestoreRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.restore_codex_agent_config(request.name, request.backup_path))
 
     @app.post("/list-codex-mcp-servers")
     def list_codex_mcp_servers_endpoint(

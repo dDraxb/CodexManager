@@ -13,7 +13,7 @@ def backup_file(path: Path) -> str | None:
         return None
     backup_dir = _backup_dir(path)
     backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backup_path = backup_dir / f"{path.name}.{timestamp}.bak"
     backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     return str(backup_path)

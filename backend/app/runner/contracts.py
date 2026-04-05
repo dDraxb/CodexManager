@@ -68,6 +68,15 @@ class RunnerClient(Protocol):
     def create_codex_agent(self, name: str, summary: str = "") -> dict:
         """Create a Codex agent scaffold and register it in global config."""
 
+    def read_codex_agent_config(self, name: str) -> dict:
+        """Read a configured Codex agent TOML file."""
+
+    def write_codex_agent_config(self, name: str, content: str) -> dict:
+        """Write a configured Codex agent TOML file."""
+
+    def restore_codex_agent_config(self, name: str, backup_path: str) -> dict:
+        """Restore a configured Codex agent TOML file from backup."""
+
     def list_codex_mcp_servers(self, scope: str, repo_path: str | None = None) -> dict:
         """List MCP server entries from Codex config."""
 

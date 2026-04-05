@@ -43,6 +43,14 @@ const EMPTY_AGENT_FORM = {
   summary: ''
 }
 
+const EMPTY_AGENT_CONFIG = {
+  name: '',
+  path: '',
+  exists: false,
+  content: '',
+  backups: []
+}
+
 const EMPTY_MCP_FORM = {
   scope: 'global',
   name: '',
@@ -701,6 +709,8 @@ export default function App() {
   const [activeRulesScope, setActiveRulesScope] = useState('workspace')
   const [codexAgents, setCodexAgents] = useState([])
   const [agentForm, setAgentForm] = useState(EMPTY_AGENT_FORM)
+  const [activeAgentName, setActiveAgentName] = useState('')
+  const [agentConfig, setAgentConfig] = useState(EMPTY_AGENT_CONFIG)
   const [codexMcp, setCodexMcp] = useState({ global: [], workspace: [] })
   const [mcpForm, setMcpForm] = useState(EMPTY_MCP_FORM)
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
@@ -1419,6 +1429,57 @@ export default function App() {
     setAgentForm(EMPTY_AGENT_FORM)
     await loadCodexAgents()
     await loadCodexConfig('global')
+    await loadCodexAgentConfig(result.name)
+    setActiveAgentName(result.name)
+  }
+
+  async function loadCodexAgentConfig(name) {
+    if (!name) {
+      setAgentConfig(EMPTY_AGENT_CONFIG)
+      return
+    }
+    const payload = await runRequest(
+      () => fetchJson(`/api/codex-agent-config?name=${encodeURIComponent(name)}`),
+      null
+    )
+    if (!payload) return
+    setAgentConfig(payload)
+  }
+
+  async function saveCodexAgentConfig() {
+    if (!agentConfig.name) return
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-agent-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: agentConfig.name,
+            content: agentConfig.content
+          })
+        }),
+      (saved) => `Saved agent config for ${saved.name}`
+    )
+    if (!payload) return
+    await loadCodexAgentConfig(agentConfig.name)
+  }
+
+  async function restoreCodexAgentConfig(backupPath) {
+    if (!agentConfig.name) return
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-agent-config/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: agentConfig.name,
+            backupPath
+          })
+        }),
+      (restored) => `Restored agent config for ${restored.name}`
+    )
+    if (!payload) return
+    await loadCodexAgentConfig(agentConfig.name)
   }
 
   async function loadCodexMcp(scope) {
@@ -1581,6 +1642,20 @@ export default function App() {
       setCodexMcp((current) => ({ ...current, workspace: [] }))
     }
   }, [commandTab, detail?.repo_path, selectedSession?.repo_path, showCommandPanel])
+
+  useEffect(() => {
+    if (commandTab !== 'environment' || !showCommandPanel) return
+    if (!codexAgents.length) {
+      setActiveAgentName('')
+      setAgentConfig(EMPTY_AGENT_CONFIG)
+      return
+    }
+    const nextName = codexAgents.some((agent) => agent.name === activeAgentName) ? activeAgentName : codexAgents[0].name
+    if (nextName !== activeAgentName) {
+      setActiveAgentName(nextName)
+    }
+    loadCodexAgentConfig(nextName)
+  }, [activeAgentName, codexAgents, commandTab, showCommandPanel])
 
   return (
     <div className="shell">
@@ -2085,7 +2160,7 @@ export default function App() {
                 <div className="row between history-browser-head">
                   <div>
                     <p className="eyebrow">Configured Agents</p>
-                    <p className="muted">Inspect and scaffold named Codex agents registered in global config.</p>
+                    <p className="muted">Inspect, scaffold, and edit named Codex agents registered in global config.</p>
                   </div>
                   <span className="badge badge-stopped">{codexAgents.length} configured</span>
                 </div>
@@ -2096,6 +2171,7 @@ export default function App() {
                         <strong>{agent.name}</strong>
                         <span className="badge badge-stopped">{agent.configFile || 'no config file'}</span>
                       </div>
+                      <button type="button" className="ghost" onClick={() => setActiveAgentName(agent.name)}>Edit config</button>
                     </div>
                   )) : <p className="muted">No configured agents yet.</p>}
                 </div>
@@ -2106,6 +2182,43 @@ export default function App() {
                   </div>
                   <button type="submit" className="primary">Create agent scaffold</button>
                 </form>
+                {activeAgentName ? (
+                  <div className="stack-form">
+                    <div className="row between history-browser-head">
+                      <div>
+                        <p className="eyebrow">Agent Config Editor</p>
+                        <p className="muted">
+                          {agentConfig.exists
+                            ? `Editing ${agentConfig.path}`
+                            : `No agent config exists yet. Saving will create ${agentConfig.path}`}
+                        </p>
+                      </div>
+                      <span className="badge badge-running">{activeAgentName}</span>
+                    </div>
+                    <textarea
+                      rows="10"
+                      value={agentConfig.content}
+                      onChange={(event) => setAgentConfig((current) => ({
+                        ...current,
+                        content: event.target.value
+                      }))}
+                    />
+                    <button type="button" className="primary" onClick={() => saveCodexAgentConfig()}>Save agent config</button>
+                    {agentConfig.backups?.length ? (
+                      <div className="history-list">
+                        {agentConfig.backups.slice(0, 5).map((backup) => (
+                          <div key={backup.path} className="history-item">
+                            <div className="row between">
+                              <strong>{backup.name}</strong>
+                              <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                            </div>
+                            <button type="button" className="ghost" onClick={() => restoreCodexAgentConfig(backup.path)}>Restore this backup</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

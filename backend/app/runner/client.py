@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.codex_agent_config import (
+    CodexAgentConfigError,
+    read_codex_agent_config,
+    restore_codex_agent_config,
+    write_codex_agent_config,
+)
 from app.services.codex_agents import CodexAgentError, create_codex_agent, list_codex_agents
 from app.services.codex_config import CodexConfigError, read_codex_config, restore_codex_config, write_codex_config
 from app.services.codex_environment import inspect_codex_environment
@@ -188,6 +194,24 @@ class LocalRunnerClient(RunnerClient):
         try:
             return create_codex_agent(name=name, summary=summary)
         except CodexAgentError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def read_codex_agent_config(self, name: str) -> dict:
+        try:
+            return read_codex_agent_config(name)
+        except CodexAgentConfigError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def write_codex_agent_config(self, name: str, content: str) -> dict:
+        try:
+            return write_codex_agent_config(name, content)
+        except CodexAgentConfigError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def restore_codex_agent_config(self, name: str, backup_path: str) -> dict:
+        try:
+            return restore_codex_agent_config(name, backup_path)
+        except CodexAgentConfigError as exc:
             raise RunnerError(str(exc)) from exc
 
     def list_codex_mcp_servers(self, scope: str, repo_path: str | None = None) -> dict:
@@ -411,6 +435,15 @@ class RemoteRunnerClient(RunnerClient):
 
     def create_codex_agent(self, name: str, summary: str = "") -> dict:
         return self._post("/create-codex-agent", {"name": name, "summary": summary})
+
+    def read_codex_agent_config(self, name: str) -> dict:
+        return self._post("/read-codex-agent-config", {"name": name})
+
+    def write_codex_agent_config(self, name: str, content: str) -> dict:
+        return self._post("/write-codex-agent-config", {"name": name, "content": content})
+
+    def restore_codex_agent_config(self, name: str, backup_path: str) -> dict:
+        return self._post("/restore-codex-agent-config", {"name": name, "backup_path": backup_path})
 
     def list_codex_mcp_servers(self, scope: str, repo_path: str | None = None) -> dict:
         return self._post("/list-codex-mcp-servers", {"scope": scope, "repo_path": repo_path})

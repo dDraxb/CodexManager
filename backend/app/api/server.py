@@ -113,6 +113,16 @@ class CodexAgentCreateRequest(BaseModel):
     summary: str = ""
 
 
+class CodexAgentConfigWriteRequest(BaseModel):
+    name: str
+    content: str
+
+
+class CodexAgentConfigRestoreRequest(BaseModel):
+    name: str
+    backup_path: str = Field(alias="backupPath")
+
+
 class CodexMcpCreateRequest(BaseModel):
     scope: str
     name: str
@@ -292,6 +302,33 @@ def create_codex_agent_api(request: CodexAgentCreateRequest) -> dict:
     client = get_runner_client()
     try:
         return client.create_codex_agent(request.name, request.summary)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/codex-agent-config")
+def codex_agent_config(name: str) -> dict:
+    client = get_runner_client()
+    try:
+        return client.read_codex_agent_config(name)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-agent-config")
+def save_codex_agent_config(request: CodexAgentConfigWriteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.write_codex_agent_config(request.name, request.content)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-agent-config/restore")
+def restore_codex_agent_config_api(request: CodexAgentConfigRestoreRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.restore_codex_agent_config(request.name, request.backup_path)
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
