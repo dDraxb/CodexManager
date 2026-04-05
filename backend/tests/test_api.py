@@ -293,6 +293,33 @@ def test_api_reads_and_writes_workspace_codex_config(configured_modules, tmp_pat
     assert payload["exists"] is True
     assert "gpt-5.4" in payload["content"]
 
+    second_write = client.post(
+        "/api/codex-config",
+        json={
+            "scope": "workspace",
+            "content": "model = 'gpt-5.3-codex'\n",
+            "repoPath": str(repo),
+        },
+    )
+    assert second_write.status_code == 200
+
+    list_response = client.get(
+        "/api/codex-config",
+        params={"scope": "workspace", "repo_path": str(repo)},
+    )
+    backups = list_response.json()["backups"]
+    assert backups
+
+    restore_response = client.post(
+        "/api/codex-config/restore",
+        json={
+            "scope": "workspace",
+            "backupPath": backups[0]["path"],
+            "repoPath": str(repo),
+        },
+    )
+    assert restore_response.status_code == 200
+
 
 def test_api_reads_and_writes_workspace_codex_rules(configured_modules, tmp_path, monkeypatch):
     from app.api import server
@@ -322,6 +349,33 @@ def test_api_reads_and_writes_workspace_codex_rules(configured_modules, tmp_path
     payload = read_response.json()
     assert payload["exists"] is True
     assert "Always run tests" in payload["content"]
+
+    second_write = client.post(
+        "/api/codex-rules",
+        json={
+            "scope": "workspace",
+            "content": "# Repo Rules\n\n- Run lint too.\n",
+            "repoPath": str(repo),
+        },
+    )
+    assert second_write.status_code == 200
+
+    list_response = client.get(
+        "/api/codex-rules",
+        params={"scope": "workspace", "repo_path": str(repo)},
+    )
+    backups = list_response.json()["backups"]
+    assert backups
+
+    restore_response = client.post(
+        "/api/codex-rules/restore",
+        json={
+            "scope": "workspace",
+            "backupPath": backups[0]["path"],
+            "repoPath": str(repo),
+        },
+    )
+    assert restore_response.status_code == 200
 
 
 def test_api_lists_and_creates_codex_agents(configured_modules, tmp_path, monkeypatch):

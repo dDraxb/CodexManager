@@ -50,11 +50,17 @@ class RunnerClient(Protocol):
     def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         """Write global or workspace Codex config content and return saved metadata."""
 
+    def restore_codex_config(self, scope: str, backup_path: str, repo_path: str | None = None) -> dict:
+        """Restore a Codex config file from a saved backup."""
+
     def read_codex_rules(self, scope: str, repo_path: str | None = None) -> dict:
         """Read global or workspace Codex instruction rules."""
 
     def write_codex_rules(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         """Write global or workspace Codex instruction rules."""
+
+    def restore_codex_rules(self, scope: str, backup_path: str, repo_path: str | None = None) -> dict:
+        """Restore Codex instruction rules from a saved backup."""
 
     def list_codex_agents(self) -> list[dict]:
         """List configured Codex agents from the execution environment."""

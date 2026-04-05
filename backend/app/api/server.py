@@ -90,9 +90,21 @@ class CodexConfigWriteRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexConfigRestoreRequest(BaseModel):
+    scope: str
+    backup_path: str = Field(alias="backupPath")
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
 class CodexRulesWriteRequest(BaseModel):
     scope: str
     content: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class CodexRulesRestoreRequest(BaseModel):
+    scope: str
+    backup_path: str = Field(alias="backupPath")
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
@@ -214,6 +226,15 @@ def save_codex_config(request: CodexConfigWriteRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/codex-config/restore")
+def restore_codex_config_api(request: CodexConfigRestoreRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.restore_codex_config(request.scope, request.backup_path, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/codex-rules")
 def codex_rules(scope: str, repo_path: str | None = None) -> dict:
     client = get_runner_client()
@@ -228,6 +249,15 @@ def save_codex_rules(request: CodexRulesWriteRequest) -> dict:
     client = get_runner_client()
     try:
         return client.write_codex_rules(request.scope, request.content, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-rules/restore")
+def restore_codex_rules_api(request: CodexRulesRestoreRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.restore_codex_rules(request.scope, request.backup_path, request.repo_path)
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

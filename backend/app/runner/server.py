@@ -94,6 +94,12 @@ class CodexConfigWriteRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexConfigRestoreRequest(BaseModel):
+    scope: str
+    backup_path: str
+    repo_path: str | None = None
+
+
 class CodexRulesReadRequest(BaseModel):
     scope: str
     repo_path: str | None = None
@@ -102,6 +108,12 @@ class CodexRulesReadRequest(BaseModel):
 class CodexRulesWriteRequest(BaseModel):
     scope: str
     content: str
+    repo_path: str | None = None
+
+
+class CodexRulesRestoreRequest(BaseModel):
+    scope: str
+    backup_path: str
     repo_path: str | None = None
 
 
@@ -284,6 +296,14 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.write_codex_config(request.scope, request.content, request.repo_path))
 
+    @app.post("/restore-codex-config")
+    def restore_codex_config_endpoint(
+        request: CodexConfigRestoreRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.restore_codex_config(request.scope, request.backup_path, request.repo_path))
+
     @app.post("/read-codex-rules")
     def read_codex_rules_endpoint(
         request: CodexRulesReadRequest,
@@ -299,6 +319,14 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     ) -> dict:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.write_codex_rules(request.scope, request.content, request.repo_path))
+
+    @app.post("/restore-codex-rules")
+    def restore_codex_rules_endpoint(
+        request: CodexRulesRestoreRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.restore_codex_rules(request.scope, request.backup_path, request.repo_path))
 
     @app.post("/list-codex-agents")
     def list_codex_agents_endpoint(x_runner_api_key: str | None = Header(default=None)) -> dict:

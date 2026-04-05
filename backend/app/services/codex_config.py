@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.services.codex_environment import codex_home_path
+from app.services.file_backups import backup_file, list_backups, restore_backup
 
 
 class CodexConfigError(RuntimeError):
@@ -27,19 +28,29 @@ def read_codex_config(*, scope: str, repo_path: str | None = None) -> dict:
         "path": str(path),
         "exists": exists,
         "content": path.read_text(encoding="utf-8") if exists else "",
+        "backups": list_backups(path),
     }
 
 
 def write_codex_config(*, scope: str, content: str, repo_path: str | None = None) -> dict:
     path = _config_path(scope, repo_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    backup_path = None
-    if path.exists():
-        backup_path = path.with_suffix(path.suffix + ".bak")
-        backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    backup_path = backup_file(path)
     path.write_text(content.rstrip() + "\n", encoding="utf-8")
     return {
         "scope": scope,
         "path": str(path),
-        "backupPath": str(backup_path) if backup_path else None,
+        "backupPath": backup_path,
+    }
+
+
+def restore_codex_config(*, scope: str, backup_path: str, repo_path: str | None = None) -> dict:
+    path = _config_path(scope, repo_path)
+    try:
+        restored = restore_backup(path, backup_path)
+    except FileNotFoundError as exc:
+        raise CodexConfigError(str(exc)) from exc
+    return {
+        "scope": scope,
+        **restored,
     }

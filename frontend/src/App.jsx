@@ -1309,6 +1309,25 @@ export default function App() {
     }
   }
 
+  async function restoreCodexConfig(scope, backupPath) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-config/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            backupPath,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (result) => `Restored ${scope} Codex config from ${result.restoredFrom}`
+    )
+    if (!payload) return
+    await loadCodexConfig(scope)
+  }
+
   async function loadCodexRules(scope) {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     const payload = await runRequest(
@@ -1338,6 +1357,25 @@ export default function App() {
           })
         }),
       (result) => `Saved ${scope} Codex rules at ${result.path}`
+    )
+    if (!payload) return
+    await loadCodexRules(scope)
+  }
+
+  async function restoreCodexRules(scope, backupPath) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-rules/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            backupPath,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (result) => `Restored ${scope} rules from ${result.restoredFrom}`
     )
     if (!payload) return
     await loadCodexRules(scope)
@@ -1845,6 +1883,19 @@ export default function App() {
                       }))}
                     />
                     <button type="button" className="primary" onClick={() => saveCodexConfig(activeConfigScope)}>Save Codex config</button>
+                    {codexConfigs[activeConfigScope].backups?.length ? (
+                      <div className="history-list">
+                        {codexConfigs[activeConfigScope].backups.slice(0, 5).map((backup) => (
+                          <div key={backup.path} className="history-item">
+                            <div className="row between">
+                              <strong>{backup.name}</strong>
+                              <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                            </div>
+                            <button type="button" className="ghost" onClick={() => restoreCodexConfig(activeConfigScope, backup.path)}>Restore this backup</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="muted">Load a global or workspace config to edit it here.</p>
@@ -1880,6 +1931,19 @@ export default function App() {
                       }))}
                     />
                     <button type="button" className="primary" onClick={() => saveCodexRules(activeRulesScope)}>Save rules</button>
+                    {codexRules[activeRulesScope].backups?.length ? (
+                      <div className="history-list">
+                        {codexRules[activeRulesScope].backups.slice(0, 5).map((backup) => (
+                          <div key={backup.path} className="history-item">
+                            <div className="row between">
+                              <strong>{backup.name}</strong>
+                              <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                            </div>
+                            <button type="button" className="ghost" onClick={() => restoreCodexRules(activeRulesScope, backup.path)}>Restore this backup</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="muted">Load a global or workspace rules file to edit it here.</p>
