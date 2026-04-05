@@ -373,6 +373,15 @@ def codex_config(scope: str, repo_path: str | None = None) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/codex-config/preview")
+def preview_codex_config_api(request: CodexConfigWriteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.preview_codex_config(request.scope, request.content, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/codex-config")
 def save_codex_config(request: CodexConfigWriteRequest) -> dict:
     client = get_runner_client()

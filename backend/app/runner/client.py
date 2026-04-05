@@ -15,7 +15,7 @@ from app.services.codex_agent_config import (
     write_codex_agent_config,
 )
 from app.services.codex_agents import CodexAgentError, create_codex_agent, list_codex_agents
-from app.services.codex_config import CodexConfigError, read_codex_config, restore_codex_config, write_codex_config
+from app.services.codex_config import CodexConfigError, preview_codex_config, read_codex_config, restore_codex_config, write_codex_config
 from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
 from app.services.codex_mcp import CodexMcpError, create_codex_mcp_server, delete_codex_mcp_server, list_codex_mcp_servers
@@ -230,6 +230,12 @@ class LocalRunnerClient(RunnerClient):
     def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
         try:
             return read_codex_config(scope=scope, repo_path=repo_path)
+        except CodexConfigError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def preview_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        try:
+            return preview_codex_config(scope=scope, content=content, repo_path=repo_path)
         except CodexConfigError as exc:
             raise RunnerError(str(exc)) from exc
 
@@ -523,6 +529,9 @@ class RemoteRunnerClient(RunnerClient):
 
     def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
         return self._post("/read-codex-config", {"scope": scope, "repo_path": repo_path})
+
+    def preview_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        return self._post("/preview-codex-config", {"scope": scope, "content": content, "repo_path": repo_path})
 
     def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         return self._post(

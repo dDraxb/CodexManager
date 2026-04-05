@@ -77,6 +77,9 @@ class RunnerClient(Protocol):
     def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
         """Read global or workspace Codex config content from the execution environment."""
 
+    def preview_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        """Preview a Codex config change and validate TOML before save."""
+
     def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         """Write global or workspace Codex config content and return saved metadata."""
 

@@ -665,6 +665,40 @@ def test_api_reads_writes_and_deletes_codex_prompt(configured_modules, tmp_path,
     assert prompt_list_response.json()["prompts"] == []
 
 
+def test_api_previews_and_validates_codex_config(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    (codex_home / "config.toml").write_text('model = "gpt-5.4"\n', encoding="utf-8")
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    preview_response = client.post(
+        "/api/codex-config/preview",
+        json={
+            "scope": "global",
+            "content": 'model = "gpt-5.4"\npersonality = "pragmatic"\n',
+        },
+    )
+    assert preview_response.status_code == 200, preview_response.text
+    payload = preview_response.json()
+    assert payload["valid"] is True
+    assert any(line.startswith("+personality") for line in payload["diff"])
+
+    invalid_response = client.post(
+        "/api/codex-config",
+        json={
+            "scope": "global",
+            "content": '[broken\nvalue = "x"\n',
+        },
+    )
+    assert invalid_response.status_code == 400
+    assert "invalid TOML" in invalid_response.text
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

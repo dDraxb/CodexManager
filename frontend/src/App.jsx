@@ -33,6 +33,13 @@ const EMPTY_CONFIG_EDITOR = {
   workspace: null
 }
 
+const EMPTY_CONFIG_PREVIEW = {
+  scope: '',
+  path: '',
+  valid: false,
+  diff: []
+}
+
 const EMPTY_RULES_EDITOR = {
   global: null,
   workspace: null
@@ -729,6 +736,7 @@ export default function App() {
   const [adoptForm, setAdoptForm] = useState(EMPTY_ADOPT_FORM)
   const [skillForm, setSkillForm] = useState(EMPTY_SKILL_FORM)
   const [codexConfigs, setCodexConfigs] = useState(EMPTY_CONFIG_EDITOR)
+  const [configPreview, setConfigPreview] = useState(EMPTY_CONFIG_PREVIEW)
   const [activeConfigScope, setActiveConfigScope] = useState('global')
   const [codexRules, setCodexRules] = useState(EMPTY_RULES_EDITOR)
   const [activeRulesScope, setActiveRulesScope] = useState('workspace')
@@ -1558,6 +1566,7 @@ export default function App() {
     if (selectedSession?.id) {
       await loadDetail(selectedSession.id)
     }
+    setConfigPreview(EMPTY_CONFIG_PREVIEW)
   }
 
   async function restoreCodexConfig(scope, backupPath) {
@@ -1577,6 +1586,28 @@ export default function App() {
     )
     if (!payload) return
     await loadCodexConfig(scope)
+    setConfigPreview(EMPTY_CONFIG_PREVIEW)
+  }
+
+  async function previewCodexConfig(scope) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const config = codexConfigs[scope]
+    if (!config) return
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-config/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            content: config.content,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      null
+    )
+    if (!payload) return
+    setConfigPreview(payload)
   }
 
   async function loadCodexRules(scope) {
@@ -2483,7 +2514,23 @@ export default function App() {
                         }
                       }))}
                     />
-                    <button type="button" className="primary" onClick={() => saveCodexConfig(activeConfigScope)}>Save Codex config</button>
+                    <div className="row gap-sm">
+                      <button type="button" className="ghost" onClick={() => previewCodexConfig(activeConfigScope)}>Preview diff</button>
+                      <button type="button" className="primary" onClick={() => saveCodexConfig(activeConfigScope)}>Save Codex config</button>
+                    </div>
+                    {configPreview.scope === activeConfigScope ? (
+                      <div className="history-item">
+                        <div className="row between">
+                          <strong>Config diff preview</strong>
+                          <span className="badge badge-running">{configPreview.diff?.length || 0} diff lines</span>
+                        </div>
+                        {configPreview.diff?.length ? (
+                          <pre className="log-output">{configPreview.diff.join('\n')}</pre>
+                        ) : (
+                          <p className="muted">No changes between the current file and the proposed content.</p>
+                        )}
+                      </div>
+                    ) : null}
                     {codexConfigs[activeConfigScope].backups?.length ? (
                       <div className="history-list">
                         {codexConfigs[activeConfigScope].backups.slice(0, 5).map((backup) => (

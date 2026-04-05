@@ -464,6 +464,14 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.read_codex_config(request.scope, request.repo_path))
 
+    @app.post("/preview-codex-config")
+    def preview_codex_config_endpoint(
+        request: CodexConfigWriteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.preview_codex_config(request.scope, request.content, request.repo_path))
+
     @app.post("/write-codex-config")
     def write_codex_config_endpoint(
         request: CodexConfigWriteRequest,
