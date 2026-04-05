@@ -506,6 +506,37 @@ def test_api_lists_and_creates_codex_mcp_servers(configured_modules, tmp_path, m
     payload = list_response.json()
     assert payload["servers"][0]["command"] == "node"
     assert payload["servers"][0]["args"] == ["server.js"]
+    assert payload["servers"][0]["enabled"] is True
+
+    disable_response = client.post(
+        "/api/codex-mcp/enabled",
+        json={
+            "scope": "global",
+            "name": "firefox-devtools",
+            "enabled": False,
+        },
+    )
+    assert disable_response.status_code == 200, disable_response.text
+
+    list_response = client.get("/api/codex-mcp", params={"scope": "global"})
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload["servers"][0]["enabled"] is False
+
+    enable_response = client.post(
+        "/api/codex-mcp/enabled",
+        json={
+            "scope": "global",
+            "name": "firefox-devtools",
+            "enabled": True,
+        },
+    )
+    assert enable_response.status_code == 200, enable_response.text
+
+    list_response = client.get("/api/codex-mcp", params={"scope": "global"})
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload["servers"][0]["enabled"] is True
 
     delete_response = client.post(
         "/api/codex-mcp/delete",

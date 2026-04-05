@@ -214,6 +214,13 @@ class CodexMcpDeleteRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexMcpEnabledRequest(BaseModel):
+    scope: str
+    name: str
+    enabled: bool
+    repo_path: str | None = None
+
+
 class TmuxSessionRequest(BaseModel):
     session_name: str
 
@@ -597,6 +604,21 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
                 request.args,
                 request.cwd,
                 request.env,
+                request.repo_path,
+            )
+        )
+
+    @app.post("/set-codex-mcp-server-enabled")
+    def set_codex_mcp_server_enabled_endpoint(
+        request: CodexMcpEnabledRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.set_codex_mcp_server_enabled(
+                request.scope,
+                request.name,
+                request.enabled,
                 request.repo_path,
             )
         )

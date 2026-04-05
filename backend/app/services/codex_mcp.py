@@ -12,6 +12,15 @@ class CodexMcpError(RuntimeError):
     pass
 
 
+def _uncomment_line(line: str) -> str:
+    stripped = line.lstrip()
+    if stripped.startswith("# "):
+        return stripped[2:]
+    if stripped.startswith("#"):
+        return stripped[1:]
+    return stripped
+
+
 def _render_mcp_block(normalized_name: str, normalized_command: str, args: list[str] | None, cwd: str | None, env: dict[str, str] | None) -> str:
     block_lines = [
         f'[mcp_servers."{normalized_name}"]',
@@ -30,6 +39,36 @@ def _render_mcp_block(normalized_name: str, normalized_command: str, args: list[
     return "\n".join(block_lines)
 
 
+def _comment_mcp_block(block: str) -> str:
+    return "\n".join(f"# {line}" for line in block.splitlines())
+
+
+def _commented_mcp_blocks(content: str) -> list[str]:
+    blocks: list[str] = []
+    current: list[str] = []
+    collecting = False
+    for line in content.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            uncommented = _uncomment_line(line)
+            if uncommented.startswith('[mcp_servers."'):
+                if current:
+                    blocks.append("\n".join(current))
+                current = [uncommented]
+                collecting = True
+                continue
+            if collecting:
+                current.append(uncommented)
+                continue
+        if collecting and current:
+            blocks.append("\n".join(current))
+            current = []
+            collecting = False
+    if collecting and current:
+        blocks.append("\n".join(current))
+    return blocks
+
+
 def _remove_mcp_block(content: str, normalized_name: str) -> str:
     target_prefix = f'[mcp_servers."{normalized_name}"'
     lines = content.splitlines()
@@ -38,8 +77,9 @@ def _remove_mcp_block(content: str, normalized_name: str) -> str:
 
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            if stripped.startswith(target_prefix):
+        active_candidate = _uncomment_line(line).strip()
+        if active_candidate.startswith("[") and active_candidate.endswith("]"):
+            if active_candidate.startswith(target_prefix):
                 skipping = True
                 continue
             if skipping:
@@ -59,21 +99,48 @@ def list_codex_mcp_servers(*, scope: str, repo_path: str | None = None) -> dict:
     except tomllib.TOMLDecodeError as exc:
         raise CodexMcpError(f"failed to parse config: {exc}") from exc
     servers = payload.get("mcp_servers")
-    if not isinstance(servers, dict):
-        return {"scope": scope, "path": str(path), "servers": []}
     rows: list[dict] = []
-    for name, entry in sorted(servers.items(), key=lambda item: str(item[0]).lower()):
-        if not isinstance(entry, dict):
+    seen: set[str] = set()
+    if isinstance(servers, dict):
+        for name, entry in sorted(servers.items(), key=lambda item: str(item[0]).lower()):
+            if not isinstance(entry, dict):
+                continue
+            normalized_name = str(name)
+            rows.append(
+                {
+                    "name": normalized_name,
+                    "command": str(entry.get("command") or "").strip(),
+                    "args": [str(item) for item in entry.get("args", [])] if isinstance(entry.get("args"), list) else [],
+                    "cwd": str(entry.get("cwd") or "").strip() or None,
+                    "env": dict(entry.get("env")) if isinstance(entry.get("env"), dict) else {},
+                    "enabled": True,
+                }
+            )
+            seen.add(normalized_name)
+    for block in _commented_mcp_blocks(path.read_text(encoding="utf-8")):
+        try:
+            payload = tomllib.loads(block)
+        except tomllib.TOMLDecodeError:
             continue
-        rows.append(
-            {
-                "name": str(name),
-                "command": str(entry.get("command") or "").strip(),
-                "args": [str(item) for item in entry.get("args", [])] if isinstance(entry.get("args"), list) else [],
-                "cwd": str(entry.get("cwd") or "").strip() or None,
-                "env": dict(entry.get("env")) if isinstance(entry.get("env"), dict) else {},
-            }
-        )
+        disabled_servers = payload.get("mcp_servers")
+        if not isinstance(disabled_servers, dict):
+            continue
+        for name, entry in sorted(disabled_servers.items(), key=lambda item: str(item[0]).lower()):
+            if not isinstance(entry, dict):
+                continue
+            normalized_name = str(name)
+            if normalized_name in seen:
+                continue
+            rows.append(
+                {
+                    "name": normalized_name,
+                    "command": str(entry.get("command") or "").strip(),
+                    "args": [str(item) for item in entry.get("args", [])] if isinstance(entry.get("args"), list) else [],
+                    "cwd": str(entry.get("cwd") or "").strip() or None,
+                    "env": dict(entry.get("env")) if isinstance(entry.get("env"), dict) else {},
+                    "enabled": False,
+                }
+            )
     return {"scope": scope, "path": str(path), "servers": rows}
 
 
@@ -157,7 +224,8 @@ def update_codex_mcp_server(
         existing = list_codex_mcp_servers(scope=scope, repo_path=repo_path)
     except CodexConfigError as exc:
         raise CodexMcpError(str(exc)) from exc
-    if not any(server["name"] == normalized_name for server in existing["servers"]):
+    server = next((row for row in existing["servers"] if row["name"] == normalized_name), None)
+    if server is None:
         raise CodexMcpError(f"MCP server '{normalized_name}' does not exist")
 
     path = Path(existing["path"])
@@ -165,10 +233,54 @@ def update_codex_mcp_server(
     backup_path = backup_file(path)
     remaining = _remove_mcp_block(original, normalized_name).rstrip()
     block = _render_mcp_block(normalized_name, normalized_command, args, cwd, env)
+    if not server.get("enabled", True):
+        block = _comment_mcp_block(block)
     path.write_text((remaining + "\n\n" if remaining else "") + block + "\n", encoding="utf-8")
     return {
         "scope": scope,
         "path": str(path),
         "backupPath": backup_path,
         "name": normalized_name,
+    }
+
+
+def set_codex_mcp_server_enabled(*, scope: str, name: str, enabled: bool, repo_path: str | None = None) -> dict:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise CodexMcpError("MCP server name is required")
+    try:
+        existing = list_codex_mcp_servers(scope=scope, repo_path=repo_path)
+    except CodexConfigError as exc:
+        raise CodexMcpError(str(exc)) from exc
+    server = next((row for row in existing["servers"] if row["name"] == normalized_name), None)
+    if server is None:
+        raise CodexMcpError(f"MCP server '{normalized_name}' does not exist")
+    if bool(server.get("enabled", True)) == enabled:
+        return {
+            "scope": scope,
+            "path": existing["path"],
+            "backupPath": None,
+            "name": normalized_name,
+            "enabled": enabled,
+        }
+
+    path = Path(existing["path"])
+    original = path.read_text(encoding="utf-8")
+    backup_path = backup_file(path)
+    remaining = _remove_mcp_block(original, normalized_name).rstrip()
+    block = _render_mcp_block(
+        normalized_name,
+        str(server.get("command") or "").strip(),
+        server.get("args") if isinstance(server.get("args"), list) else [],
+        server.get("cwd"),
+        server.get("env") if isinstance(server.get("env"), dict) else {},
+    )
+    rendered = block if enabled else _comment_mcp_block(block)
+    path.write_text((remaining + "\n\n" if remaining else "") + rendered + "\n", encoding="utf-8")
+    return {
+        "scope": scope,
+        "path": str(path),
+        "backupPath": backup_path,
+        "name": normalized_name,
+        "enabled": enabled,
     }

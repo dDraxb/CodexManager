@@ -140,6 +140,9 @@ class RunnerClient(Protocol):
     ) -> dict:
         """Update a Codex MCP server entry."""
 
+    def set_codex_mcp_server_enabled(self, scope: str, name: str, enabled: bool, repo_path: str | None = None) -> dict:
+        """Enable or disable a Codex MCP server entry."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

@@ -1881,6 +1881,31 @@ export default function App() {
     }
   }
 
+  async function setCodexMcpEnabled(scope, name, enabled) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-mcp/enabled', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            name,
+            enabled,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (updated) => `${enabled ? 'Enabled' : 'Disabled'} ${updated.scope} MCP server ${updated.name}`
+    )
+    if (!payload) return
+    await loadCodexMcp(scope)
+    if (scope === 'global') {
+      await loadCodexConfig('global')
+    } else {
+      await loadCodexConfig('workspace')
+    }
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -2266,9 +2291,15 @@ export default function App() {
                       <div className="row between">
                         <strong>{server.name}</strong>
                         <div className="row gap-sm">
+                          <span className={server.enabled === false ? 'badge badge-attention' : 'badge badge-running'}>
+                            {server.enabled === false ? 'disabled' : 'enabled'}
+                          </span>
                           <span className="badge badge-stopped">{server.scope}</span>
                           <button className="ghost" type="button" onClick={() => editCodexMcpServer(server)}>
                             Edit
+                          </button>
+                          <button className="ghost" type="button" onClick={() => setCodexMcpEnabled(server.scope, server.name, server.enabled === false)}>
+                            {server.enabled === false ? 'Enable' : 'Disable'}
                           </button>
                           <button className="ghost danger-text" type="button" onClick={() => deleteCodexMcpServer(server.scope, server.name)}>
                             Remove
@@ -2302,7 +2333,7 @@ export default function App() {
                   <div className="row gap-sm">
                     <button type="submit" className="primary">{mcpForm.editing ? 'Update MCP server' : 'Add MCP server'}</button>
                     {mcpForm.editing ? (
-                      <button type="button" className="ghost" onClick={() => setMcpForm(EMPTY_MCP_FORM)}>Cancel edit</button>
+                      <button type="button" className="ghost" onClick={() => setMcpForm((prev) => ({ ...EMPTY_MCP_FORM, scope: prev.scope }))}>Cancel edit</button>
                     ) : null}
                   </div>
                 </form>
