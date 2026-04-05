@@ -83,6 +83,32 @@ class CodexSkillCreateRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexSkillReadRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = None
+
+
+class CodexSkillWriteRequest(BaseModel):
+    scope: str
+    name: str
+    content: str
+    repo_path: str | None = None
+
+
+class CodexSkillRestoreRequest(BaseModel):
+    scope: str
+    name: str
+    backup_path: str
+    repo_path: str | None = None
+
+
+class CodexSkillDeleteRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = None
+
+
 class CodexConfigReadRequest(BaseModel):
     scope: str
     repo_path: str | None = None
@@ -314,6 +340,40 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
                 request.repo_path,
             )
         )
+
+    @app.post("/read-codex-skill")
+    def read_codex_skill_endpoint(
+        request: CodexSkillReadRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.read_codex_skill(request.scope, request.name, request.repo_path))
+
+    @app.post("/write-codex-skill")
+    def write_codex_skill_endpoint(
+        request: CodexSkillWriteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.write_codex_skill(request.scope, request.name, request.content, request.repo_path))
+
+    @app.post("/restore-codex-skill")
+    def restore_codex_skill_endpoint(
+        request: CodexSkillRestoreRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.restore_codex_skill(request.scope, request.name, request.backup_path, request.repo_path)
+        )
+
+    @app.post("/delete-codex-skill")
+    def delete_codex_skill_endpoint(
+        request: CodexSkillDeleteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.delete_codex_skill(request.scope, request.name, request.repo_path))
 
     @app.post("/read-codex-config")
     def read_codex_config_endpoint(

@@ -494,6 +494,93 @@ def test_api_reads_and_writes_codex_agent_config(configured_modules, tmp_path, m
     assert 'description = "Quality helper"' in read_response.json()["content"]
 
 
+def test_api_reads_writes_and_deletes_codex_skill(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codex_home = tmp_path / ".codex"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    create_response = client.post(
+        "/api/codex-skills",
+        json={
+            "scope": "workspace",
+            "name": "release-guard",
+            "summary": "Guard release changes",
+            "repoPath": str(repo),
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+
+    read_response = client.get(
+        "/api/codex-skill",
+        params={"scope": "workspace", "name": "release-guard", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200, read_response.text
+    payload = read_response.json()
+    assert payload["name"] == "release-guard"
+    assert "## Purpose" in payload["content"]
+
+    write_response = client.post(
+        "/api/codex-skill",
+        json={
+            "scope": "workspace",
+            "name": "release-guard",
+            "content": "# Updated skill\n",
+            "repoPath": str(repo),
+        },
+    )
+    assert write_response.status_code == 200, write_response.text
+
+    read_response = client.get(
+        "/api/codex-skill",
+        params={"scope": "workspace", "name": "release-guard", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200, read_response.text
+    payload = read_response.json()
+    assert payload["content"].startswith("# Updated skill")
+    assert payload["backups"]
+
+    restore_response = client.post(
+        "/api/codex-skill/restore",
+        json={
+            "scope": "workspace",
+            "name": "release-guard",
+            "backupPath": payload["backups"][0]["path"],
+            "repoPath": str(repo),
+        },
+    )
+    assert restore_response.status_code == 200, restore_response.text
+
+    read_response = client.get(
+        "/api/codex-skill",
+        params={"scope": "workspace", "name": "release-guard", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200, read_response.text
+    assert "## Purpose" in read_response.json()["content"]
+
+    delete_response = client.post(
+        "/api/codex-skill/delete",
+        json={
+            "scope": "workspace",
+            "name": "release-guard",
+            "repoPath": str(repo),
+        },
+    )
+    assert delete_response.status_code == 200, delete_response.text
+
+    read_response = client.get(
+        "/api/codex-skill",
+        params={"scope": "workspace", "name": "release-guard", "repo_path": str(repo)},
+    )
+    assert read_response.status_code == 200, read_response.text
+    assert read_response.json()["exists"] is False
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

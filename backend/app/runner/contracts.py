@@ -44,6 +44,18 @@ class RunnerClient(Protocol):
     def create_codex_skill(self, scope: str, name: str, summary: str, repo_path: str | None = None) -> dict:
         """Create a global or workspace Codex skill scaffold and return its metadata."""
 
+    def read_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        """Read a global or workspace Codex skill file."""
+
+    def write_codex_skill(self, scope: str, name: str, content: str, repo_path: str | None = None) -> dict:
+        """Write a global or workspace Codex skill file."""
+
+    def restore_codex_skill(self, scope: str, name: str, backup_path: str, repo_path: str | None = None) -> dict:
+        """Restore a Codex skill file from backup."""
+
+    def delete_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        """Delete a global or workspace Codex skill directory."""
+
     def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
         """Read global or workspace Codex config content from the execution environment."""
 

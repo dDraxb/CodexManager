@@ -20,7 +20,14 @@ from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
 from app.services.codex_mcp import CodexMcpError, create_codex_mcp_server, delete_codex_mcp_server, list_codex_mcp_servers
 from app.services.codex_rules import CodexRulesError, read_codex_rules, restore_codex_rules, write_codex_rules
-from app.services.codex_skills import CodexSkillError, create_codex_skill
+from app.services.codex_skills import (
+    CodexSkillError,
+    create_codex_skill,
+    delete_codex_skill,
+    read_codex_skill,
+    restore_codex_skill,
+    write_codex_skill,
+)
 from app.services.shell import ShellError, command_exists
 from app.services.tmux import attach_command as tmux_attach_command
 from app.services.tmux import capture_pane as tmux_capture_pane
@@ -148,6 +155,30 @@ class LocalRunnerClient(RunnerClient):
     def create_codex_skill(self, scope: str, name: str, summary: str, repo_path: str | None = None) -> dict:
         try:
             return create_codex_skill(scope=scope, name=name, summary=summary, repo_path=repo_path)
+        except CodexSkillError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def read_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        try:
+            return read_codex_skill(scope=scope, name=name, repo_path=repo_path)
+        except CodexSkillError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def write_codex_skill(self, scope: str, name: str, content: str, repo_path: str | None = None) -> dict:
+        try:
+            return write_codex_skill(scope=scope, name=name, content=content, repo_path=repo_path)
+        except CodexSkillError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def restore_codex_skill(self, scope: str, name: str, backup_path: str, repo_path: str | None = None) -> dict:
+        try:
+            return restore_codex_skill(scope=scope, name=name, backup_path=backup_path, repo_path=repo_path)
+        except CodexSkillError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def delete_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        try:
+            return delete_codex_skill(scope=scope, name=name, repo_path=repo_path)
         except CodexSkillError as exc:
             raise RunnerError(str(exc)) from exc
 
@@ -398,6 +429,24 @@ class RemoteRunnerClient(RunnerClient):
                 "repo_path": repo_path,
             },
         )
+
+    def read_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        return self._post("/read-codex-skill", {"scope": scope, "name": name, "repo_path": repo_path})
+
+    def write_codex_skill(self, scope: str, name: str, content: str, repo_path: str | None = None) -> dict:
+        return self._post(
+            "/write-codex-skill",
+            {"scope": scope, "name": name, "content": content, "repo_path": repo_path},
+        )
+
+    def restore_codex_skill(self, scope: str, name: str, backup_path: str, repo_path: str | None = None) -> dict:
+        return self._post(
+            "/restore-codex-skill",
+            {"scope": scope, "name": name, "backup_path": backup_path, "repo_path": repo_path},
+        )
+
+    def delete_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        return self._post("/delete-codex-skill", {"scope": scope, "name": name, "repo_path": repo_path})
 
     def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
         return self._post("/read-codex-config", {"scope": scope, "repo_path": repo_path})

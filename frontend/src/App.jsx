@@ -51,6 +51,16 @@ const EMPTY_AGENT_CONFIG = {
   backups: []
 }
 
+const EMPTY_SKILL_EDITOR = {
+  scope: 'global',
+  name: '',
+  path: '',
+  skillFile: '',
+  exists: false,
+  content: '',
+  backups: []
+}
+
 const EMPTY_MCP_FORM = {
   scope: 'global',
   name: '',
@@ -711,6 +721,7 @@ export default function App() {
   const [agentForm, setAgentForm] = useState(EMPTY_AGENT_FORM)
   const [activeAgentName, setActiveAgentName] = useState('')
   const [agentConfig, setAgentConfig] = useState(EMPTY_AGENT_CONFIG)
+  const [skillEditor, setSkillEditor] = useState(EMPTY_SKILL_EDITOR)
   const [codexMcp, setCodexMcp] = useState({ global: [], workspace: [] })
   const [mcpForm, setMcpForm] = useState(EMPTY_MCP_FORM)
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
@@ -1286,6 +1297,93 @@ export default function App() {
     )
     if (!result) return
     setSkillForm((prev) => ({ ...EMPTY_SKILL_FORM, scope: prev.scope }))
+    await loadCodexSkill(result.scope, result.name)
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+  }
+
+  async function loadCodexSkill(scope, name) {
+    if (!name) {
+      setSkillEditor(EMPTY_SKILL_EDITOR)
+      return
+    }
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson(
+          `/api/codex-skill?scope=${encodeURIComponent(scope)}&name=${encodeURIComponent(name)}&repo_path=${encodeURIComponent(repoPath)}`
+        ),
+      null
+    )
+    if (!payload) return
+    setSkillEditor(payload)
+  }
+
+  async function saveCodexSkill() {
+    if (!skillEditor.name) return
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-skill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: skillEditor.scope,
+            name: skillEditor.name,
+            content: skillEditor.content,
+            repoPath: skillEditor.scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (saved) => `Saved ${saved.scope} skill ${saved.name}`
+    )
+    if (!payload) return
+    await loadCodexSkill(skillEditor.scope, skillEditor.name)
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+  }
+
+  async function restoreCodexSkill(backupPath) {
+    if (!skillEditor.name) return
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-skill/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: skillEditor.scope,
+            name: skillEditor.name,
+            backupPath,
+            repoPath: skillEditor.scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (restored) => `Restored ${restored.scope} skill ${restored.name}`
+    )
+    if (!payload) return
+    await loadCodexSkill(skillEditor.scope, skillEditor.name)
+  }
+
+  async function deleteCodexSkill(scope, name) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-skill/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            name,
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (removed) => `Deleted ${removed.scope} skill ${removed.name}`
+    )
+    if (!payload) return
+    if (skillEditor.scope === scope && skillEditor.name === name) {
+      setSkillEditor(EMPTY_SKILL_EDITOR)
+    }
     if (selectedSession?.id) {
       await loadDetail(selectedSession.id)
     }
@@ -2028,12 +2126,35 @@ export default function App() {
                       {`${codexEnvironment?.globalSkills?.length || 0} global · ${codexEnvironment?.workspaceSkills?.length || 0} workspace`}
                     </span>
                   </div>
-                  <p className="muted">
-                    Global: {(codexEnvironment?.globalSkills || []).map((skill) => skill.name).join(', ') || 'none'}
-                  </p>
-                  <p className="muted">
-                    Workspace: {(codexEnvironment?.workspaceSkills || []).map((skill) => skill.name).join(', ') || 'none'}
-                  </p>
+                  <div className="history-list">
+                    {(codexEnvironment?.globalSkills || []).map((skill) => (
+                      <div key={`global-${skill.name}`} className="history-item">
+                        <div className="row between">
+                          <strong>{skill.name}</strong>
+                          <div className="row gap-sm">
+                            <span className="badge badge-stopped">global</span>
+                            <button type="button" className="ghost" onClick={() => loadCodexSkill('global', skill.name)}>Edit</button>
+                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexSkill('global', skill.name)}>Delete</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {(codexEnvironment?.workspaceSkills || []).map((skill) => (
+                      <div key={`workspace-${skill.name}`} className="history-item">
+                        <div className="row between">
+                          <strong>{skill.name}</strong>
+                          <div className="row gap-sm">
+                            <span className="badge badge-stopped">workspace</span>
+                            <button type="button" className="ghost" onClick={() => loadCodexSkill('workspace', skill.name)}>Edit</button>
+                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexSkill('workspace', skill.name)}>Delete</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {!(codexEnvironment?.globalSkills || []).length && !(codexEnvironment?.workspaceSkills || []).length ? (
+                      <p className="muted">No installed skills yet.</p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
               <form className="stack-form" onSubmit={createCodexSkill}>
@@ -2060,6 +2181,45 @@ export default function App() {
                 </div>
                 <button type="submit" className="primary">Create skill scaffold</button>
               </form>
+              {skillEditor.name ? (
+                <div className="history-browser">
+                  <div className="row between history-browser-head">
+                    <div>
+                      <p className="eyebrow">Skill Editor</p>
+                      <p className="muted">
+                        {skillEditor.exists
+                          ? `Editing ${skillEditor.skillFile}`
+                          : `No skill file exists yet. Saving will create ${skillEditor.skillFile}`}
+                      </p>
+                    </div>
+                    <span className="badge badge-running">{`${skillEditor.scope} · ${skillEditor.name}`}</span>
+                  </div>
+                  <div className="stack-form">
+                    <textarea
+                      rows="10"
+                      value={skillEditor.content}
+                      onChange={(event) => setSkillEditor((current) => ({
+                        ...current,
+                        content: event.target.value
+                      }))}
+                    />
+                    <button type="button" className="primary" onClick={() => saveCodexSkill()}>Save skill</button>
+                    {skillEditor.backups?.length ? (
+                      <div className="history-list">
+                        {skillEditor.backups.slice(0, 5).map((backup) => (
+                          <div key={backup.path} className="history-item">
+                            <div className="row between">
+                              <strong>{backup.name}</strong>
+                              <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                            </div>
+                            <button type="button" className="ghost" onClick={() => restoreCodexSkill(backup.path)}>Restore this backup</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <div className="history-browser">
                 <div className="row between history-browser-head">
                   <div>

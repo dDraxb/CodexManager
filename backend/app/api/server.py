@@ -84,6 +84,26 @@ class CodexSkillCreateRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexSkillWriteRequest(BaseModel):
+    scope: str
+    name: str
+    content: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class CodexSkillRestoreRequest(BaseModel):
+    scope: str
+    name: str
+    backup_path: str = Field(alias="backupPath")
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class CodexSkillDeleteRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
 class CodexConfigWriteRequest(BaseModel):
     scope: str
     content: str
@@ -230,6 +250,42 @@ def create_skill(request: CodexSkillCreateRequest) -> dict:
             summary=request.summary,
             repo_path=request.repo_path,
         )
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/codex-skill")
+def codex_skill(scope: str, name: str, repo_path: str | None = None) -> dict:
+    client = get_runner_client()
+    try:
+        return client.read_codex_skill(scope, name, repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-skill")
+def save_codex_skill(request: CodexSkillWriteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.write_codex_skill(request.scope, request.name, request.content, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-skill/restore")
+def restore_codex_skill_api(request: CodexSkillRestoreRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.restore_codex_skill(request.scope, request.name, request.backup_path, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-skill/delete")
+def delete_codex_skill_api(request: CodexSkillDeleteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.delete_codex_skill(request.scope, request.name, request.repo_path)
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
