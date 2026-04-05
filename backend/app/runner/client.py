@@ -12,6 +12,7 @@ from app.services.codex_agents import CodexAgentError, create_codex_agent, list_
 from app.services.codex_config import CodexConfigError, read_codex_config, restore_codex_config, write_codex_config
 from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
+from app.services.codex_mcp import CodexMcpError, create_codex_mcp_server, list_codex_mcp_servers
 from app.services.codex_rules import CodexRulesError, read_codex_rules, restore_codex_rules, write_codex_rules
 from app.services.codex_skills import CodexSkillError, create_codex_skill
 from app.services.shell import ShellError, command_exists
@@ -187,6 +188,35 @@ class LocalRunnerClient(RunnerClient):
         try:
             return create_codex_agent(name=name, summary=summary)
         except CodexAgentError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def list_codex_mcp_servers(self, scope: str, repo_path: str | None = None) -> dict:
+        try:
+            return list_codex_mcp_servers(scope=scope, repo_path=repo_path)
+        except CodexMcpError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def create_codex_mcp_server(
+        self,
+        scope: str,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        repo_path: str | None = None,
+    ) -> dict:
+        try:
+            return create_codex_mcp_server(
+                scope=scope,
+                name=name,
+                command=command,
+                args=args,
+                cwd=cwd,
+                env=env,
+                repo_path=repo_path,
+            )
+        except CodexMcpError as exc:
             raise RunnerError(str(exc)) from exc
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
@@ -375,6 +405,32 @@ class RemoteRunnerClient(RunnerClient):
 
     def create_codex_agent(self, name: str, summary: str = "") -> dict:
         return self._post("/create-codex-agent", {"name": name, "summary": summary})
+
+    def list_codex_mcp_servers(self, scope: str, repo_path: str | None = None) -> dict:
+        return self._post("/list-codex-mcp-servers", {"scope": scope, "repo_path": repo_path})
+
+    def create_codex_mcp_server(
+        self,
+        scope: str,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        repo_path: str | None = None,
+    ) -> dict:
+        return self._post(
+            "/create-codex-mcp-server",
+            {
+                "scope": scope,
+                "name": name,
+                "command": command,
+                "args": args or [],
+                "cwd": cwd,
+                "env": env or {},
+                "repo_path": repo_path,
+            },
+        )
 
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         payload = self._post(

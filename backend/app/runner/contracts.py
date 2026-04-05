@@ -68,6 +68,21 @@ class RunnerClient(Protocol):
     def create_codex_agent(self, name: str, summary: str = "") -> dict:
         """Create a Codex agent scaffold and register it in global config."""
 
+    def list_codex_mcp_servers(self, scope: str, repo_path: str | None = None) -> dict:
+        """List MCP server entries from Codex config."""
+
+    def create_codex_mcp_server(
+        self,
+        scope: str,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        repo_path: str | None = None,
+    ) -> dict:
+        """Create a Codex MCP server entry."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

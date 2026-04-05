@@ -113,6 +113,16 @@ class CodexAgentCreateRequest(BaseModel):
     summary: str = ""
 
 
+class CodexMcpCreateRequest(BaseModel):
+    scope: str
+    name: str
+    command: str
+    args: list[str] = []
+    cwd: str | None = None
+    env: dict[str, str] = {}
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -276,6 +286,32 @@ def create_codex_agent_api(request: CodexAgentCreateRequest) -> dict:
     client = get_runner_client()
     try:
         return client.create_codex_agent(request.name, request.summary)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/codex-mcp")
+def codex_mcp(scope: str, repo_path: str | None = None) -> dict:
+    client = get_runner_client()
+    try:
+        return client.list_codex_mcp_servers(scope, repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-mcp")
+def create_codex_mcp_api(request: CodexMcpCreateRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.create_codex_mcp_server(
+            request.scope,
+            request.name,
+            request.command,
+            request.args,
+            request.cwd,
+            request.env,
+            request.repo_path,
+        )
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

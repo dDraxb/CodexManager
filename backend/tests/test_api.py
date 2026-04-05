@@ -402,6 +402,32 @@ def test_api_lists_and_creates_codex_agents(configured_modules, tmp_path, monkey
     assert payload["agents"][0]["name"] == "release-captain"
 
 
+def test_api_lists_and_creates_codex_mcp_servers(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codex_home = tmp_path / ".codex"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    create_response = client.post(
+        "/api/codex-mcp",
+        json={
+            "scope": "global",
+            "name": "firefox-devtools",
+            "command": "npx",
+            "args": ["@padenot/firefox-devtools-mcp"],
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+
+    list_response = client.get("/api/codex-mcp", params={"scope": "global"})
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload["servers"][0]["name"] == "firefox-devtools"
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 

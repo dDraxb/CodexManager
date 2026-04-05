@@ -43,6 +43,13 @@ const EMPTY_AGENT_FORM = {
   summary: ''
 }
 
+const EMPTY_MCP_FORM = {
+  scope: 'global',
+  name: '',
+  command: '',
+  args: ''
+}
+
 const COMMAND_TABS = [
   { id: 'create', label: 'New session' },
   { id: 'adopt', label: 'Adopt session' },
@@ -694,6 +701,8 @@ export default function App() {
   const [activeRulesScope, setActiveRulesScope] = useState('workspace')
   const [codexAgents, setCodexAgents] = useState([])
   const [agentForm, setAgentForm] = useState(EMPTY_AGENT_FORM)
+  const [codexMcp, setCodexMcp] = useState({ global: [], workspace: [] })
+  const [mcpForm, setMcpForm] = useState(EMPTY_MCP_FORM)
   const [showCreateAdvanced, setShowCreateAdvanced] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [sessionQuery, setSessionQuery] = useState('')
@@ -1412,6 +1421,52 @@ export default function App() {
     await loadCodexConfig('global')
   }
 
+  async function loadCodexMcp(scope) {
+    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const payload = await runRequest(
+      () => fetchJson(`/api/codex-mcp?scope=${encodeURIComponent(scope)}&repo_path=${encodeURIComponent(repoPath)}`),
+      null
+    )
+    if (!payload) return
+    setCodexMcp((current) => ({ ...current, [scope]: payload.servers || [] }))
+  }
+
+  async function createCodexMcpServer(event) {
+    event.preventDefault()
+    const payload = {
+      scope: mcpForm.scope,
+      name: mcpForm.name.trim(),
+      command: mcpForm.command.trim(),
+      args: mcpForm.args.split(/\s+/).filter(Boolean),
+      repoPath: mcpForm.scope === 'workspace' ? (detail?.repo_path || selectedSession?.repo_path || '') : null
+    }
+    if (!payload.name || !payload.command) {
+      notify('error', 'MCP server name and command are required')
+      return
+    }
+    if (payload.scope === 'workspace' && !payload.repoPath) {
+      notify('error', 'Select a session with a working directory for workspace MCP entries')
+      return
+    }
+    const result = await runRequest(
+      () =>
+        fetchJson('/api/codex-mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }),
+      (created) => `Created ${created.scope} MCP server ${created.name}`
+    )
+    if (!result) return
+    setMcpForm((prev) => ({ ...EMPTY_MCP_FORM, scope: prev.scope }))
+    await loadCodexMcp(payload.scope)
+    if (payload.scope === 'global') {
+      await loadCodexConfig('global')
+    } else {
+      await loadCodexConfig('workspace')
+    }
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -1495,6 +1550,12 @@ export default function App() {
       setCodexRules((current) => ({ ...current, workspace: null }))
     }
     loadCodexAgents()
+    loadCodexMcp('global')
+    if (detail?.repo_path || selectedSession?.repo_path) {
+      loadCodexMcp('workspace')
+    } else {
+      setCodexMcp((current) => ({ ...current, workspace: [] }))
+    }
   }, [commandTab, detail?.repo_path, selectedSession?.repo_path, showCommandPanel])
 
   return (
@@ -1762,6 +1823,48 @@ export default function App() {
                   ))}
                   {!historyThreads.length ? <p className="muted">No history loaded yet.</p> : null}
                 </div>
+              </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">MCP Servers</p>
+                    <p className="muted">Inspect configured MCP servers and register new entries in Codex config.</p>
+                  </div>
+                  <span className="badge badge-stopped">{`${codexMcp.global.length} global · ${codexMcp.workspace.length} workspace`}</span>
+                </div>
+                <div className="history-list">
+                  {[...codexMcp.global.map((server) => ({ ...server, scope: 'global' })), ...codexMcp.workspace.map((server) => ({ ...server, scope: 'workspace' }))].map((server) => (
+                    <div key={`${server.scope}-${server.name}`} className="history-item">
+                      <div className="row between">
+                        <strong>{server.name}</strong>
+                        <span className="badge badge-stopped">{server.scope}</span>
+                      </div>
+                      <p className="muted">{server.command}{server.args?.length ? ` ${server.args.join(' ')}` : ''}</p>
+                    </div>
+                  ))}
+                  {!codexMcp.global.length && !codexMcp.workspace.length ? <p className="muted">No MCP servers configured yet.</p> : null}
+                </div>
+                <form className="stack-form" onSubmit={createCodexMcpServer}>
+                  <div className="command-settings-grid adopt-settings-grid">
+                    <label className="field">
+                      <span>MCP scope</span>
+                      <select value={mcpForm.scope} onChange={(event) => setMcpForm((prev) => ({ ...prev, scope: event.target.value }))}>
+                        <option value="global">global</option>
+                        <option value="workspace">workspace</option>
+                      </select>
+                    </label>
+                    <div className="helper-copy">
+                      <span className="field-label">What gets written</span>
+                      <p className="muted">Adds a new `[mcp_servers.\"name\"]` entry to the selected Codex config.</p>
+                    </div>
+                  </div>
+                  <div className="command-form-grid">
+                    <input placeholder="Server name" value={mcpForm.name} onChange={(event) => setMcpForm((prev) => ({ ...prev, name: event.target.value }))} />
+                    <input placeholder="Command" value={mcpForm.command} onChange={(event) => setMcpForm((prev) => ({ ...prev, command: event.target.value }))} />
+                  </div>
+                  <input placeholder="Args (space-separated)" value={mcpForm.args} onChange={(event) => setMcpForm((prev) => ({ ...prev, args: event.target.value }))} />
+                  <button type="submit" className="primary">Add MCP server</button>
+                </form>
               </div>
             </div>
           ) : null}

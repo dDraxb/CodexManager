@@ -122,6 +122,21 @@ class CodexAgentCreateRequest(BaseModel):
     summary: str = ""
 
 
+class CodexMcpListRequest(BaseModel):
+    scope: str
+    repo_path: str | None = None
+
+
+class CodexMcpCreateRequest(BaseModel):
+    scope: str
+    name: str
+    command: str
+    args: list[str] = []
+    cwd: str | None = None
+    env: dict[str, str] = {}
+    repo_path: str | None = None
+
+
 class TmuxSessionRequest(BaseModel):
     session_name: str
 
@@ -340,6 +355,32 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     ) -> dict:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.create_codex_agent(request.name, request.summary))
+
+    @app.post("/list-codex-mcp-servers")
+    def list_codex_mcp_servers_endpoint(
+        request: CodexMcpListRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(lambda: runner.list_codex_mcp_servers(request.scope, request.repo_path))
+
+    @app.post("/create-codex-mcp-server")
+    def create_codex_mcp_server_endpoint(
+        request: CodexMcpCreateRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.create_codex_mcp_server(
+                request.scope,
+                request.name,
+                request.command,
+                request.args,
+                request.cwd,
+                request.env,
+                request.repo_path,
+            )
+        )
 
     @app.post("/codex/find-recent-session")
     def find_recent_codex_session(
