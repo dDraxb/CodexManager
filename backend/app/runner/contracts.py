@@ -128,6 +128,18 @@ class RunnerClient(Protocol):
     def delete_codex_mcp_server(self, scope: str, name: str, repo_path: str | None = None) -> dict:
         """Delete a Codex MCP server entry."""
 
+    def update_codex_mcp_server(
+        self,
+        scope: str,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        repo_path: str | None = None,
+    ) -> dict:
+        """Update a Codex MCP server entry."""
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         """Return a recent Codex-native session id for this cwd when one can be identified safely."""
 

@@ -427,6 +427,23 @@ def test_api_lists_and_creates_codex_mcp_servers(configured_modules, tmp_path, m
     payload = list_response.json()
     assert payload["servers"][0]["name"] == "firefox-devtools"
 
+    update_response = client.post(
+        "/api/codex-mcp/update",
+        json={
+            "scope": "global",
+            "name": "firefox-devtools",
+            "command": "node",
+            "args": ["server.js"],
+        },
+    )
+    assert update_response.status_code == 200, update_response.text
+
+    list_response = client.get("/api/codex-mcp", params={"scope": "global"})
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload["servers"][0]["command"] == "node"
+    assert payload["servers"][0]["args"] == ["server.js"]
+
     delete_response = client.post(
         "/api/codex-mcp/delete",
         json={

@@ -87,7 +87,8 @@ const EMPTY_MCP_FORM = {
   scope: 'global',
   name: '',
   command: '',
-  args: ''
+  args: '',
+  editing: false
 }
 
 const COMMAND_TABS = [
@@ -1772,14 +1773,15 @@ export default function App() {
       notify('error', 'Select a session with a working directory for workspace MCP entries')
       return
     }
+    const endpoint = mcpForm.editing ? '/api/codex-mcp/update' : '/api/codex-mcp'
     const result = await runRequest(
       () =>
-        fetchJson('/api/codex-mcp', {
+        fetchJson(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         }),
-      (created) => `Created ${created.scope} MCP server ${created.name}`
+      (created) => `${mcpForm.editing ? 'Updated' : 'Created'} ${created.scope} MCP server ${created.name}`
     )
     if (!result) return
     setMcpForm((prev) => ({ ...EMPTY_MCP_FORM, scope: prev.scope }))
@@ -1789,6 +1791,16 @@ export default function App() {
     } else {
       await loadCodexConfig('workspace')
     }
+  }
+
+  function editCodexMcpServer(server) {
+    setMcpForm({
+      scope: server.scope,
+      name: server.name,
+      command: server.command || '',
+      args: server.args?.join(' ') || '',
+      editing: true
+    })
   }
 
   async function deleteCodexMcpServer(scope, name) {
@@ -2201,6 +2213,9 @@ export default function App() {
                         <strong>{server.name}</strong>
                         <div className="row gap-sm">
                           <span className="badge badge-stopped">{server.scope}</span>
+                          <button className="ghost" type="button" onClick={() => editCodexMcpServer(server)}>
+                            Edit
+                          </button>
                           <button className="ghost danger-text" type="button" onClick={() => deleteCodexMcpServer(server.scope, server.name)}>
                             Remove
                           </button>
@@ -2230,7 +2245,12 @@ export default function App() {
                     <input placeholder="Command" value={mcpForm.command} onChange={(event) => setMcpForm((prev) => ({ ...prev, command: event.target.value }))} />
                   </div>
                   <input placeholder="Args (space-separated)" value={mcpForm.args} onChange={(event) => setMcpForm((prev) => ({ ...prev, args: event.target.value }))} />
-                  <button type="submit" className="primary">Add MCP server</button>
+                  <div className="row gap-sm">
+                    <button type="submit" className="primary">{mcpForm.editing ? 'Update MCP server' : 'Add MCP server'}</button>
+                    {mcpForm.editing ? (
+                      <button type="button" className="ghost" onClick={() => setMcpForm(EMPTY_MCP_FORM)}>Cancel edit</button>
+                    ) : null}
+                  </div>
                 </form>
               </div>
             </div>

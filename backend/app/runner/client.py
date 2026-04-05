@@ -18,7 +18,7 @@ from app.services.codex_agents import CodexAgentError, create_codex_agent, list_
 from app.services.codex_config import CodexConfigError, preview_codex_config, read_codex_config, restore_codex_config, write_codex_config
 from app.services.codex_environment import inspect_codex_environment
 from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
-from app.services.codex_mcp import CodexMcpError, create_codex_mcp_server, delete_codex_mcp_server, list_codex_mcp_servers
+from app.services.codex_mcp import CodexMcpError, create_codex_mcp_server, delete_codex_mcp_server, list_codex_mcp_servers, update_codex_mcp_server
 from app.services.codex_prompts import (
     CodexPromptError,
     create_codex_prompt,
@@ -331,6 +331,29 @@ class LocalRunnerClient(RunnerClient):
         except CodexMcpError as exc:
             raise RunnerError(str(exc)) from exc
 
+    def update_codex_mcp_server(
+        self,
+        scope: str,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        repo_path: str | None = None,
+    ) -> dict:
+        try:
+            return update_codex_mcp_server(
+                scope=scope,
+                name=name,
+                command=command,
+                args=args,
+                cwd=cwd,
+                env=env,
+                repo_path=repo_path,
+            )
+        except CodexMcpError as exc:
+            raise RunnerError(str(exc)) from exc
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         return find_recent_codex_session_id(cwd, prompt, since)
 
@@ -608,6 +631,29 @@ class RemoteRunnerClient(RunnerClient):
             {
                 "scope": scope,
                 "name": name,
+                "repo_path": repo_path,
+            },
+        )
+
+    def update_codex_mcp_server(
+        self,
+        scope: str,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        repo_path: str | None = None,
+    ) -> dict:
+        return self._post(
+            "/update-codex-mcp-server",
+            {
+                "scope": scope,
+                "name": name,
+                "command": command,
+                "args": args or [],
+                "cwd": cwd,
+                "env": env or {},
                 "repo_path": repo_path,
             },
         )

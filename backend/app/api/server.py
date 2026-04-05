@@ -507,6 +507,23 @@ def delete_codex_mcp_api(request: CodexMcpDeleteRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/codex-mcp/update")
+def update_codex_mcp_api(request: CodexMcpCreateRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.update_codex_mcp_server(
+            request.scope,
+            request.name,
+            request.command,
+            request.args,
+            request.cwd,
+            request.env,
+            request.repo_path,
+        )
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/validation-presets/apply")
 def apply_validation_preset(request: ValidationPresetApplyRequest) -> dict:
     client = get_runner_client()
