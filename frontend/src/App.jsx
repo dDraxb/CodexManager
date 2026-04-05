@@ -759,6 +759,8 @@ export default function App() {
   const [showCommandPanel, setShowCommandPanel] = useState(false)
   const [historyQuery, setHistoryQuery] = useState('')
   const [historyThreads, setHistoryThreads] = useState([])
+  const [environmentHistoryThreads, setEnvironmentHistoryThreads] = useState([])
+  const [loadingEnvironmentHistory, setLoadingEnvironmentHistory] = useState(false)
   const [resumePoints, setResumePoints] = useState([])
   const [showResumeChooser, setShowResumeChooser] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -1203,6 +1205,21 @@ export default function App() {
     }
   }
 
+  async function loadEnvironmentHistory() {
+    setLoadingEnvironmentHistory(true)
+    try {
+      const repoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
+      const payload = await fetchJson(`/api/codex/history?limit=8&cwd=${encodeURIComponent(repoPath)}`)
+      setEnvironmentHistoryThreads(payload.threads || [])
+    } catch (err) {
+      const message = formatError(err)
+      setError(message)
+      notify('error', message)
+    } finally {
+      setLoadingEnvironmentHistory(false)
+    }
+  }
+
   async function useResumePoint(thread) {
     if (!selectedSession) return
     const payload = await runRequest(
@@ -1224,6 +1241,7 @@ export default function App() {
   }
 
   function adoptFromHistory(thread) {
+    setShowCommandPanel(true)
     setCommandTab('adopt')
     setAdoptForm((prev) => ({
       ...prev,
@@ -2277,10 +2295,10 @@ export default function App() {
                   {!historyThreads.length ? <p className="muted">No history loaded yet.</p> : null}
                 </div>
               </div>
-              <div className="history-browser">
-                <div className="row between history-browser-head">
-                  <div>
-                    <p className="eyebrow">MCP Servers</p>
+                <div className="history-browser">
+                  <div className="row between history-browser-head">
+                    <div>
+                      <p className="eyebrow">MCP Servers</p>
                     <p className="muted">Inspect configured MCP servers and register new entries in Codex config.</p>
                   </div>
                   <span className="badge badge-stopped">{`${codexMcp.global.length} global · ${codexMcp.workspace.length} workspace`}</span>
@@ -2337,6 +2355,31 @@ export default function App() {
                     ) : null}
                   </div>
                 </form>
+              </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Local Codex History</p>
+                    <p className="muted">Browse recent Codex-native threads from the selected working directory and import them into the manager adopt flow.</p>
+                  </div>
+                  <button className="ghost" type="button" onClick={() => loadEnvironmentHistory()}>
+                    {loadingEnvironmentHistory ? 'Loading…' : 'Load recent history'}
+                  </button>
+                </div>
+                <div className="history-list">
+                  {environmentHistoryThreads.map((thread) => (
+                    <div key={`env-${thread.id}`} className="history-item">
+                      <div className="row between">
+                        <strong>{thread.title || thread.first_user_message || thread.id}</strong>
+                        <span className="badge badge-stopped">{formatCodexTimestamp(thread.updated_at)}</span>
+                      </div>
+                      <p className="muted">{thread.id}</p>
+                      <p className="muted">{thread.cwd}</p>
+                      <button className="ghost" type="button" onClick={() => adoptFromHistory(thread)}>Use in adopt form</button>
+                    </div>
+                  ))}
+                  {!environmentHistoryThreads.length ? <p className="muted">No local Codex history loaded yet.</p> : null}
+                </div>
               </div>
             </div>
           ) : null}
