@@ -97,6 +97,7 @@ Default behavior:
 - runner tmux session: `codexmgr-host-runner`
 - shared manager home: `${HOME}/.codexmgr`
 - runner log: `${HOME}/.codexmgr/logs/runner.log`
+- shared runner API key: `${HOME}/.codexmgr/runner_api_key`
 
 Override points if needed:
 

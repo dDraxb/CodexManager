@@ -928,16 +928,25 @@ export default function App() {
   async function loadAll() {
     try {
       setError('')
-      const [nextSummary, rows, presetPayload, configPresetPayload, repoPolicyPayload] = await Promise.all([
+      const rows = await fetchJson('/api/sessions')
+      startTransition(() => {
+        setSessions(rows)
+      })
+
+      const [
+        nextSummary,
+        presetPayload,
+        configPresetPayload,
+        repoPolicyPayload
+      ] = await Promise.all([
         fetchJson('/api/summary'),
-        fetchJson('/api/sessions'),
         fetchJson('/api/validation-presets'),
         fetchJson('/api/codex-config-presets'),
         fetchJson('/api/repo-policies')
       ])
+
       startTransition(() => {
         setSummary(nextSummary)
-        setSessions(rows)
         setValidationPresets(presetPayload.presets || [])
         setConfigPresets(configPresetPayload.presets || [])
         setRepoPolicies(repoPolicyPayload.policies || [])
@@ -2295,92 +2304,6 @@ export default function App() {
                   {!historyThreads.length ? <p className="muted">No history loaded yet.</p> : null}
                 </div>
               </div>
-                <div className="history-browser">
-                  <div className="row between history-browser-head">
-                    <div>
-                      <p className="eyebrow">MCP Servers</p>
-                    <p className="muted">Inspect configured MCP servers and register new entries in Codex config.</p>
-                  </div>
-                  <span className="badge badge-stopped">{`${codexMcp.global.length} global · ${codexMcp.workspace.length} workspace`}</span>
-                </div>
-                <div className="history-list">
-                  {[...codexMcp.global.map((server) => ({ ...server, scope: 'global' })), ...codexMcp.workspace.map((server) => ({ ...server, scope: 'workspace' }))].map((server) => (
-                    <div key={`${server.scope}-${server.name}`} className="history-item">
-                      <div className="row between">
-                        <strong>{server.name}</strong>
-                        <div className="row gap-sm">
-                          <span className={server.enabled === false ? 'badge badge-attention' : 'badge badge-running'}>
-                            {server.enabled === false ? 'disabled' : 'enabled'}
-                          </span>
-                          <span className="badge badge-stopped">{server.scope}</span>
-                          <button className="ghost" type="button" onClick={() => editCodexMcpServer(server)}>
-                            Edit
-                          </button>
-                          <button className="ghost" type="button" onClick={() => setCodexMcpEnabled(server.scope, server.name, server.enabled === false)}>
-                            {server.enabled === false ? 'Enable' : 'Disable'}
-                          </button>
-                          <button className="ghost danger-text" type="button" onClick={() => deleteCodexMcpServer(server.scope, server.name)}>
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                      <p className="muted">{server.command}{server.args?.length ? ` ${server.args.join(' ')}` : ''}</p>
-                    </div>
-                  ))}
-                  {!codexMcp.global.length && !codexMcp.workspace.length ? <p className="muted">No MCP servers configured yet.</p> : null}
-                </div>
-                <form className="stack-form" onSubmit={createCodexMcpServer}>
-                  <div className="command-settings-grid adopt-settings-grid">
-                    <label className="field">
-                      <span>MCP scope</span>
-                      <select value={mcpForm.scope} onChange={(event) => setMcpForm((prev) => ({ ...prev, scope: event.target.value }))}>
-                        <option value="global">global</option>
-                        <option value="workspace">workspace</option>
-                      </select>
-                    </label>
-                    <div className="helper-copy">
-                      <span className="field-label">What gets written</span>
-                      <p className="muted">Adds a new `[mcp_servers.\"name\"]` entry to the selected Codex config.</p>
-                    </div>
-                  </div>
-                  <div className="command-form-grid">
-                    <input placeholder="Server name" value={mcpForm.name} onChange={(event) => setMcpForm((prev) => ({ ...prev, name: event.target.value }))} />
-                    <input placeholder="Command" value={mcpForm.command} onChange={(event) => setMcpForm((prev) => ({ ...prev, command: event.target.value }))} />
-                  </div>
-                  <input placeholder="Args (space-separated)" value={mcpForm.args} onChange={(event) => setMcpForm((prev) => ({ ...prev, args: event.target.value }))} />
-                  <div className="row gap-sm">
-                    <button type="submit" className="primary">{mcpForm.editing ? 'Update MCP server' : 'Add MCP server'}</button>
-                    {mcpForm.editing ? (
-                      <button type="button" className="ghost" onClick={() => setMcpForm((prev) => ({ ...EMPTY_MCP_FORM, scope: prev.scope }))}>Cancel edit</button>
-                    ) : null}
-                  </div>
-                </form>
-              </div>
-              <div className="history-browser">
-                <div className="row between history-browser-head">
-                  <div>
-                    <p className="eyebrow">Local Codex History</p>
-                    <p className="muted">Browse recent Codex-native threads from the selected working directory and import them into the manager adopt flow.</p>
-                  </div>
-                  <button className="ghost" type="button" onClick={() => loadEnvironmentHistory()}>
-                    {loadingEnvironmentHistory ? 'Loading…' : 'Load recent history'}
-                  </button>
-                </div>
-                <div className="history-list">
-                  {environmentHistoryThreads.map((thread) => (
-                    <div key={`env-${thread.id}`} className="history-item">
-                      <div className="row between">
-                        <strong>{thread.title || thread.first_user_message || thread.id}</strong>
-                        <span className="badge badge-stopped">{formatCodexTimestamp(thread.updated_at)}</span>
-                      </div>
-                      <p className="muted">{thread.id}</p>
-                      <p className="muted">{thread.cwd}</p>
-                      <button className="ghost" type="button" onClick={() => adoptFromHistory(thread)}>Use in adopt form</button>
-                    </div>
-                  ))}
-                  {!environmentHistoryThreads.length ? <p className="muted">No local Codex history loaded yet.</p> : null}
-                </div>
-              </div>
             </div>
           ) : null}
 
@@ -2471,6 +2394,28 @@ export default function App() {
                 </div>
                 <div className="history-item">
                   <div className="row between">
+                    <strong>Recent local Codex history</strong>
+                    <button className="ghost" type="button" onClick={() => loadEnvironmentHistory()}>
+                      {loadingEnvironmentHistory ? 'Loading…' : 'Load recent'}
+                    </button>
+                  </div>
+                  <div className="history-list">
+                    {environmentHistoryThreads.map((thread) => (
+                      <div key={`env-${thread.id}`} className="history-item">
+                        <div className="row between">
+                          <strong>{thread.title || thread.first_user_message || thread.id}</strong>
+                          <span className="badge badge-stopped">{formatCodexTimestamp(thread.updated_at)}</span>
+                        </div>
+                        <p className="muted">{thread.id}</p>
+                        <p className="muted">{thread.cwd}</p>
+                        <button className="ghost" type="button" onClick={() => adoptFromHistory(thread)}>Use in adopt form</button>
+                      </div>
+                    ))}
+                    {!environmentHistoryThreads.length ? <p className="muted">No local Codex history loaded yet.</p> : null}
+                  </div>
+                </div>
+                <div className="history-item">
+                  <div className="row between">
                     <strong>Prompt assets</strong>
                     <span className="badge badge-running">
                       {`${codexEnvironment?.globalPrompts?.length || 0} global · ${codexEnvironment?.workspacePrompts?.length || 0} workspace`}
@@ -2506,6 +2451,67 @@ export default function App() {
                     ) : null}
                   </div>
                 </div>
+              </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">MCP Servers</p>
+                    <p className="muted">Inspect configured MCP servers and register new entries in Codex config.</p>
+                  </div>
+                  <span className="badge badge-stopped">{`${codexMcp.global.length} global · ${codexMcp.workspace.length} workspace`}</span>
+                </div>
+                <div className="history-list">
+                  {[...codexMcp.global.map((server) => ({ ...server, scope: 'global' })), ...codexMcp.workspace.map((server) => ({ ...server, scope: 'workspace' }))].map((server) => (
+                    <div key={`${server.scope}-${server.name}`} className="history-item">
+                      <div className="row between">
+                        <strong>{server.name}</strong>
+                        <div className="row gap-sm">
+                          <span className={server.enabled === false ? 'badge badge-attention' : 'badge badge-running'}>
+                            {server.enabled === false ? 'disabled' : 'enabled'}
+                          </span>
+                          <span className="badge badge-stopped">{server.scope}</span>
+                          <button className="ghost" type="button" onClick={() => editCodexMcpServer(server)}>
+                            Edit
+                          </button>
+                          <button className="ghost" type="button" onClick={() => setCodexMcpEnabled(server.scope, server.name, server.enabled === false)}>
+                            {server.enabled === false ? 'Enable' : 'Disable'}
+                          </button>
+                          <button className="ghost danger-text" type="button" onClick={() => deleteCodexMcpServer(server.scope, server.name)}>
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      <p className="muted">{server.command}{server.args?.length ? ` ${server.args.join(' ')}` : ''}</p>
+                    </div>
+                  ))}
+                  {!codexMcp.global.length && !codexMcp.workspace.length ? <p className="muted">No MCP servers configured yet.</p> : null}
+                </div>
+                <form className="stack-form" onSubmit={createCodexMcpServer}>
+                  <div className="command-settings-grid adopt-settings-grid">
+                    <label className="field">
+                      <span>MCP scope</span>
+                      <select value={mcpForm.scope} onChange={(event) => setMcpForm((prev) => ({ ...prev, scope: event.target.value }))}>
+                        <option value="global">global</option>
+                        <option value="workspace">workspace</option>
+                      </select>
+                    </label>
+                    <div className="helper-copy">
+                      <span className="field-label">What gets written</span>
+                      <p className="muted">Adds a new `[mcp_servers.\"name\"]` entry to the selected Codex config.</p>
+                    </div>
+                  </div>
+                  <div className="command-form-grid">
+                    <input placeholder="Server name" value={mcpForm.name} onChange={(event) => setMcpForm((prev) => ({ ...prev, name: event.target.value }))} />
+                    <input placeholder="Command" value={mcpForm.command} onChange={(event) => setMcpForm((prev) => ({ ...prev, command: event.target.value }))} />
+                  </div>
+                  <input placeholder="Args (space-separated)" value={mcpForm.args} onChange={(event) => setMcpForm((prev) => ({ ...prev, args: event.target.value }))} />
+                  <div className="row gap-sm">
+                    <button type="submit" className="primary">{mcpForm.editing ? 'Update MCP server' : 'Add MCP server'}</button>
+                    {mcpForm.editing ? (
+                      <button type="button" className="ghost" onClick={() => setMcpForm((prev) => ({ ...EMPTY_MCP_FORM, scope: prev.scope }))}>Cancel edit</button>
+                    ) : null}
+                  </div>
+                </form>
               </div>
               <form className="stack-form" onSubmit={createCodexSkill}>
                 <div className="command-settings-grid adopt-settings-grid">
