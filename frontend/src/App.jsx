@@ -98,6 +98,15 @@ const COMMAND_TABS = [
   { id: 'environment', label: 'Codex environment' }
 ]
 
+const ENVIRONMENT_SECTIONS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'assets', label: 'Skills & prompts' },
+  { id: 'config', label: 'Config' },
+  { id: 'rules', label: 'Rules' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'mcp', label: 'MCP' }
+]
+
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
 
 function badgeClass(status) {
@@ -757,10 +766,9 @@ export default function App() {
   const [sessionQuery, setSessionQuery] = useState('')
   const [commandTab, setCommandTab] = useState('create')
   const [showCommandPanel, setShowCommandPanel] = useState(false)
+  const [environmentSection, setEnvironmentSection] = useState('overview')
   const [historyQuery, setHistoryQuery] = useState('')
   const [historyThreads, setHistoryThreads] = useState([])
-  const [environmentHistoryThreads, setEnvironmentHistoryThreads] = useState([])
-  const [loadingEnvironmentHistory, setLoadingEnvironmentHistory] = useState(false)
   const [resumePoints, setResumePoints] = useState([])
   const [showResumeChooser, setShowResumeChooser] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -1211,21 +1219,6 @@ export default function App() {
       notify('error', message)
     } finally {
       setLoadingHistory(false)
-    }
-  }
-
-  async function loadEnvironmentHistory() {
-    setLoadingEnvironmentHistory(true)
-    try {
-      const repoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
-      const payload = await fetchJson(`/api/codex/history?limit=8&cwd=${encodeURIComponent(repoPath)}`)
-      setEnvironmentHistoryThreads(payload.threads || [])
-    } catch (err) {
-      const message = formatError(err)
-      setError(message)
-      notify('error', message)
-    } finally {
-      setLoadingEnvironmentHistory(false)
     }
   }
 
@@ -2342,116 +2335,65 @@ export default function App() {
               <div className="command-head">
                 <div>
                   <p className="eyebrow">Codex Environment</p>
-                  <h2>Configs and skills</h2>
+                  <h2>Environment and behavior assets</h2>
                 </div>
                 <span className="badge badge-stopped">{detail?.repo_path || selectedSession?.repo_path ? 'session-scoped' : 'global-only'}</span>
               </div>
+              <div className="environment-section-tabs" role="tablist" aria-label="Environment sections">
+                {ENVIRONMENT_SECTIONS.map((section) => (
+                  <button
+                    key={section.id}
+                    type="button"
+                    className={`tab-button ${environmentSection === section.id ? 'active' : ''}`}
+                    aria-selected={environmentSection === section.id}
+                    onClick={() => setEnvironmentSection(section.id)}
+                  >
+                    {section.label}
+                  </button>
+                ))}
+              </div>
+              {environmentSection === 'overview' ? (
               <div className="history-browser">
-                <div className="history-item">
-                  <div className="row between">
-                    <strong>Config inventory</strong>
-                    <span className="badge badge-stopped">{codexEnvironment?.codexHome || 'no Codex home'}</span>
+                <div className="environment-grid">
+                  <div className="history-item">
+                    <div className="row between">
+                      <strong>Config inventory</strong>
+                      <span className="badge badge-stopped">{codexEnvironment?.codexHome || 'no Codex home'}</span>
+                    </div>
+                    <p className="muted">Global config: {codexEnvironment?.globalConfig?.exists ? codexEnvironment.globalConfig.path : 'missing'}</p>
+                    <p className="muted">Workspace config: {codexEnvironment?.workspaceConfig?.exists ? codexEnvironment.workspaceConfig.path : 'missing'}</p>
                   </div>
-                  <p className="muted">Global config: {codexEnvironment?.globalConfig?.exists ? codexEnvironment.globalConfig.path : 'missing'}</p>
-                  <p className="muted">Workspace config: {codexEnvironment?.workspaceConfig?.exists ? codexEnvironment.workspaceConfig.path : 'missing'}</p>
-                </div>
-                <div className="history-item">
-                  <div className="row between">
-                    <strong>Installed skills</strong>
-                    <span className="badge badge-running">
-                      {`${codexEnvironment?.globalSkills?.length || 0} global · ${codexEnvironment?.workspaceSkills?.length || 0} workspace`}
-                    </span>
+                  <div className="history-item">
+                    <div className="row between">
+                      <strong>Skills and prompts</strong>
+                      <span className="badge badge-running">
+                        {`${(codexEnvironment?.globalSkills?.length || 0) + (codexEnvironment?.workspaceSkills?.length || 0)} skills · ${(codexEnvironment?.globalPrompts?.length || 0) + (codexEnvironment?.workspacePrompts?.length || 0)} prompts`}
+                      </span>
+                    </div>
+                    <p className="muted">{`${codexEnvironment?.globalSkills?.length || 0} global skills · ${codexEnvironment?.workspaceSkills?.length || 0} workspace skills`}</p>
+                    <p className="muted">{`${codexEnvironment?.globalPrompts?.length || 0} global prompts · ${codexEnvironment?.workspacePrompts?.length || 0} workspace prompts`}</p>
                   </div>
-                  <div className="history-list">
-                    {(codexEnvironment?.globalSkills || []).map((skill) => (
-                      <div key={`global-${skill.name}`} className="history-item">
-                        <div className="row between">
-                          <strong>{skill.name}</strong>
-                          <div className="row gap-sm">
-                            <span className="badge badge-stopped">global</span>
-                            <button type="button" className="ghost" onClick={() => loadCodexSkill('global', skill.name)}>Edit</button>
-                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexSkill('global', skill.name)}>Delete</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {(codexEnvironment?.workspaceSkills || []).map((skill) => (
-                      <div key={`workspace-${skill.name}`} className="history-item">
-                        <div className="row between">
-                          <strong>{skill.name}</strong>
-                          <div className="row gap-sm">
-                            <span className="badge badge-stopped">workspace</span>
-                            <button type="button" className="ghost" onClick={() => loadCodexSkill('workspace', skill.name)}>Edit</button>
-                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexSkill('workspace', skill.name)}>Delete</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {!(codexEnvironment?.globalSkills || []).length && !(codexEnvironment?.workspaceSkills || []).length ? (
-                      <p className="muted">No installed skills yet.</p>
-                    ) : null}
+                  <div className="history-item">
+                    <div className="row between">
+                      <strong>Agents and MCP</strong>
+                      <span className="badge badge-running">
+                        {`${codexAgents.length} agents · ${codexMcp.global.length + codexMcp.workspace.length} MCP servers`}
+                      </span>
+                    </div>
+                    <p className="muted">{`${codexAgents.length} configured agents in global Codex config`}</p>
+                    <p className="muted">{`${codexMcp.global.length} global MCP entries · ${codexMcp.workspace.length} workspace MCP entries`}</p>
                   </div>
-                </div>
-                <div className="history-item">
-                  <div className="row between">
-                    <strong>Recent local Codex history</strong>
-                    <button className="ghost" type="button" onClick={() => loadEnvironmentHistory()}>
-                      {loadingEnvironmentHistory ? 'Loading…' : 'Load recent'}
-                    </button>
-                  </div>
-                  <div className="history-list">
-                    {environmentHistoryThreads.map((thread) => (
-                      <div key={`env-${thread.id}`} className="history-item">
-                        <div className="row between">
-                          <strong>{thread.title || thread.first_user_message || thread.id}</strong>
-                          <span className="badge badge-stopped">{formatCodexTimestamp(thread.updated_at)}</span>
-                        </div>
-                        <p className="muted">{thread.id}</p>
-                        <p className="muted">{thread.cwd}</p>
-                        <button className="ghost" type="button" onClick={() => adoptFromHistory(thread)}>Use in adopt form</button>
-                      </div>
-                    ))}
-                    {!environmentHistoryThreads.length ? <p className="muted">No local Codex history loaded yet.</p> : null}
-                  </div>
-                </div>
-                <div className="history-item">
-                  <div className="row between">
-                    <strong>Prompt assets</strong>
-                    <span className="badge badge-running">
-                      {`${codexEnvironment?.globalPrompts?.length || 0} global · ${codexEnvironment?.workspacePrompts?.length || 0} workspace`}
-                    </span>
-                  </div>
-                  <div className="history-list">
-                    {(codexEnvironment?.globalPrompts || []).map((prompt) => (
-                      <div key={`global-prompt-${prompt.name}`} className="history-item">
-                        <div className="row between">
-                          <strong>{prompt.name}</strong>
-                          <div className="row gap-sm">
-                            <span className="badge badge-stopped">global</span>
-                            <button type="button" className="ghost" onClick={() => loadCodexPrompt('global', prompt.name)}>Edit</button>
-                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexPrompt('global', prompt.name)}>Delete</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {(codexEnvironment?.workspacePrompts || []).map((prompt) => (
-                      <div key={`workspace-prompt-${prompt.name}`} className="history-item">
-                        <div className="row between">
-                          <strong>{prompt.name}</strong>
-                          <div className="row gap-sm">
-                            <span className="badge badge-stopped">workspace</span>
-                            <button type="button" className="ghost" onClick={() => loadCodexPrompt('workspace', prompt.name)}>Edit</button>
-                            <button type="button" className="ghost danger-text" onClick={() => deleteCodexPrompt('workspace', prompt.name)}>Delete</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {!(codexEnvironment?.globalPrompts || []).length && !(codexEnvironment?.workspacePrompts || []).length ? (
-                      <p className="muted">No prompt assets yet.</p>
-                    ) : null}
+                  <div className="history-item">
+                    <div className="row between">
+                      <strong>Section guide</strong>
+                      <span className="badge badge-stopped">overview only</span>
+                    </div>
+                    <p className="muted">Use <strong>Skills & prompts</strong> to manage local behavior assets, <strong>Config</strong> for Codex TOML, <strong>Rules</strong> for AGENTS.md guidance, <strong>Agents</strong> for named agent configs, and <strong>MCP</strong> for tool servers.</p>
                   </div>
                 </div>
               </div>
+              ) : null}
+              {environmentSection === 'mcp' ? (
               <div className="history-browser">
                 <div className="row between history-browser-head">
                   <div>
@@ -2512,6 +2454,18 @@ export default function App() {
                     ) : null}
                   </div>
                 </form>
+              </div>
+              ) : null}
+              {environmentSection === 'assets' ? (
+              <>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Skills and Prompt Assets</p>
+                    <p className="muted">Manage local Codex skills and prompt assets on this machine. External catalog installation is not wired in yet.</p>
+                  </div>
+                  <span className="badge badge-stopped">local assets</span>
+                </div>
               </div>
               <form className="stack-form" onSubmit={createCodexSkill}>
                 <div className="command-settings-grid adopt-settings-grid">
@@ -2639,6 +2593,9 @@ export default function App() {
                   </div>
                 </div>
               ) : null}
+              </>
+              ) : null}
+              {environmentSection === 'config' ? (
               <div className="history-browser">
                 <div className="row between history-browser-head">
                   <div>
@@ -2651,7 +2608,7 @@ export default function App() {
                   </div>
                 </div>
                 {codexConfigs[activeConfigScope] ? (
-                  <div className="stack-form">
+                  <div className="stack-form environment-editor">
                     <p className="muted">
                       {codexConfigs[activeConfigScope].exists
                         ? `Editing ${codexConfigs[activeConfigScope].path}`
@@ -2735,11 +2692,13 @@ export default function App() {
                   <p className="muted">Load a global or workspace config to edit it here.</p>
                 )}
               </div>
+              ) : null}
+              {environmentSection === 'rules' ? (
               <div className="history-browser">
                 <div className="row between history-browser-head">
                   <div>
-                    <p className="eyebrow">Instruction Rules</p>
-                    <p className="muted">Edit global or repo-level AGENTS.md guidance on the execution host.</p>
+                    <p className="eyebrow">AGENTS.md Rules</p>
+                    <p className="muted">Edit global or repo-level AGENTS.md guidance on the execution host. This is the current rules system, not a separate standalone rule registry.</p>
                   </div>
                   <div className="row">
                     <button type="button" className={`ghost ${activeRulesScope === 'global' ? 'active-filter' : ''}`} onClick={() => setActiveRulesScope('global')}>Global</button>
@@ -2747,7 +2706,7 @@ export default function App() {
                   </div>
                 </div>
                 {codexRules[activeRulesScope] ? (
-                  <div className="stack-form">
+                  <div className="stack-form environment-editor">
                     <p className="muted">
                       {codexRules[activeRulesScope].exists
                         ? `Editing ${codexRules[activeRulesScope].path}`
@@ -2783,6 +2742,8 @@ export default function App() {
                   <p className="muted">Load a global or workspace rules file to edit it here.</p>
                 )}
               </div>
+              ) : null}
+              {environmentSection === 'agents' ? (
               <div className="history-browser">
                 <div className="row between history-browser-head">
                   <div>
@@ -2791,26 +2752,31 @@ export default function App() {
                   </div>
                   <span className="badge badge-stopped">{codexAgents.length} configured</span>
                 </div>
-                <div className="history-list">
-                  {codexAgents.length ? codexAgents.map((agent) => (
-                    <div key={agent.name} className="history-item">
-                      <div className="row between">
-                        <strong>{agent.name}</strong>
-                        <span className="badge badge-stopped">{agent.configFile || 'no config file'}</span>
-                      </div>
-                      <button type="button" className="ghost" onClick={() => setActiveAgentName(agent.name)}>Edit config</button>
+                <div className="environment-split">
+                  <div className="environment-column">
+                    <div className="history-list">
+                      {codexAgents.length ? codexAgents.map((agent) => (
+                        <div key={agent.name} className="history-item agent-list-item">
+                          <div className="agent-list-head">
+                            <div className="agent-list-copy">
+                              <strong>{agent.name}</strong>
+                              <p className="muted agent-path">{agent.configFile || 'no config file'}</p>
+                            </div>
+                            <button type="button" className="ghost agent-edit-button" onClick={() => setActiveAgentName(agent.name)}>Edit config</button>
+                          </div>
+                        </div>
+                      )) : <p className="muted">No configured agents yet.</p>}
                     </div>
-                  )) : <p className="muted">No configured agents yet.</p>}
-                </div>
-                <form className="stack-form" onSubmit={createCodexAgent}>
-                  <div className="command-form-grid">
-                    <input placeholder="Agent name (e.g. release-captain)" value={agentForm.name} onChange={(event) => setAgentForm((prev) => ({ ...prev, name: event.target.value }))} />
-                    <input placeholder="Short role summary" value={agentForm.summary} onChange={(event) => setAgentForm((prev) => ({ ...prev, summary: event.target.value }))} />
+                    <form className="stack-form" onSubmit={createCodexAgent}>
+                      <div className="command-form-grid">
+                        <input placeholder="Agent name (e.g. release-captain)" value={agentForm.name} onChange={(event) => setAgentForm((prev) => ({ ...prev, name: event.target.value }))} />
+                        <input placeholder="Short role summary" value={agentForm.summary} onChange={(event) => setAgentForm((prev) => ({ ...prev, summary: event.target.value }))} />
+                      </div>
+                      <button type="submit" className="primary">Create agent scaffold</button>
+                    </form>
                   </div>
-                  <button type="submit" className="primary">Create agent scaffold</button>
-                </form>
-                {activeAgentName ? (
-                  <div className="stack-form">
+                  {activeAgentName ? (
+                  <div className="stack-form environment-editor">
                     <div className="row between history-browser-head">
                       <div>
                         <p className="eyebrow">Agent Config Editor</p>
@@ -2845,8 +2811,14 @@ export default function App() {
                       </div>
                     ) : null}
                   </div>
-                ) : null}
+                  ) : (
+                  <div className="history-item environment-placeholder">
+                    <p className="muted">Select an agent to edit its config.</p>
+                  </div>
+                  )}
+                </div>
               </div>
+              ) : null}
             </div>
           ) : null}
         </article>
@@ -2911,24 +2883,6 @@ export default function App() {
                   ...detail,
                 })}
               </p>
-              <p className="muted">
-                Phase confidence: {(
-                  selectedSession.status === 'running' || selectedSession.status === 'starting' || selectedSession.status === 'waiting_input'
-                    ? (detail?.work_phase_confidence || selectedSession.work_phase_confidence || 'low')
-                    : (detail?.last_major_phase_confidence || selectedSession.last_major_phase_confidence || detail?.work_phase_confidence || selectedSession.work_phase_confidence || 'low')
-                )}
-              </p>
-              <p className="muted">
-                Phase evidence: {phaseReasonText(
-                  selectedSession.status,
-                  detail?.work_phase_reason || selectedSession.work_phase_reason,
-                  detail?.last_major_phase_reason || selectedSession.last_major_phase_reason
-                )}
-              </p>
-              <p className="muted">Current focus: {(detail?.health_reason || selectedSession.health_reason || 'monitor the session')}</p>
-              {detail?.health_evidence || selectedSession.health_evidence ? (
-                <p className="muted">Health evidence: {detail?.health_evidence || selectedSession.health_evidence}</p>
-              ) : null}
               {((detail?.repo_overlap_count || selectedSession.repo_overlap_count || 0) > 0) ? (
                 <p className="muted">
                   Shared file overlap: {overlapPreviewText(
@@ -2937,8 +2891,6 @@ export default function App() {
                   )}
                 </p>
               ) : null}
-              {detail?.block_category ? <p className="muted">Block type: {blockCategoryLabel(detail.block_category)}</p> : null}
-              {detail?.block_reason ? <p className="muted">Block reason: {detail.block_reason}</p> : null}
               <div className="overview-grid">
                 <div className="overview-item overview-item-wide">
                   <span className="overview-label">Working directory</span>

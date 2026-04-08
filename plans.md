@@ -474,7 +474,8 @@ V2 should add first-class management for the Codex asset surface itself:
 - `CODEX_HOME/config.toml`
 - workspace `.codex/config.toml`
 - prompts
-- rules
+- `AGENTS.md` rules
+- manager-owned rules
 - skills
 - MCP server definitions
 - local session history stored under `CODEX_HOME`
@@ -520,6 +521,22 @@ Examples:
 - later: install/import skills from trusted registries or repos
 
 This fits our product very naturally because skills directly affect how sessions behave, but today the manager does not own or expose that capability.
+
+#### Rules management
+- clearly distinguish `AGENTS.md` guidance from manager-owned rules
+- keep `AGENTS.md` editing as the compatibility layer Codex already understands
+- add a separate structured rule system owned by the manager
+- support global, repo-specific, and possibly preset-linked rule scopes
+- later allow export/sync from manager rules into `AGENTS.md` where that makes sense
+
+This matters because “rules” are broader than markdown guidance files. `AGENTS.md` is useful and compatible, but we also need a manager-native place for structured behavior policies that should not be forced into a raw markdown document.
+
+Examples of manager-owned rules:
+- autonomy limits by repo or preset
+- preferred skill activation rules
+- allowed/disallowed agent choices for certain repos
+- repo-specific execution guidance that the manager can validate structurally
+- behavior defaults that can later be rendered into human-readable guidance
 
 #### MCP and tool integration management
 - inspect configured MCP/tool entries

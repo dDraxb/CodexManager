@@ -955,6 +955,36 @@ def test_api_delete_session(configured_modules, git_repo):
     assert response.json() == []
 
 
+def test_api_delete_adopted_session_remains_deleted_after_summary(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/adopt",
+        json={
+            "name": "delete-adopted",
+            "codexSessionId": "019ce115-d070-7053-b385-870d5e021ea7",
+            "repoPath": str(git_repo),
+            "profile": "read-only",
+        },
+    )
+    assert response.status_code == 200, response.text
+    session_id = response.json()["id"]
+
+    response = client.delete(f"/api/sessions/{session_id}")
+    assert response.status_code == 200, response.text
+
+    response = client.get("/api/summary")
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 0
+
+    response = client.get("/api/sessions")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_api_bulk_delete_endpoints(configured_modules, git_repo):
     from app.api import server
 
