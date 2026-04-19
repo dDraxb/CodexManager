@@ -386,6 +386,43 @@ def test_create_managed_session_launch_stays_starting_until_activity(configured_
     assert not any(event.type == "status_changed" and event.message == "starting -> running" for event in events)
 
 
+def test_create_managed_session_can_defer_launch(configured_modules, git_repo, monkeypatch):
+    from app.models.session import SessionStatus
+    from app.services import sessions as session_service
+
+    runner = RecordingRunner(str(git_repo), session_exists=True)
+    thread_calls = []
+
+    class ImmediateThread:
+        def __init__(self, *, target, kwargs, daemon):
+            self.target = target
+            self.kwargs = kwargs
+            self.daemon = daemon
+
+        def start(self):
+            thread_calls.append((self.target, self.kwargs, self.daemon))
+            self.target(**self.kwargs)
+
+    monkeypatch.setattr(session_service.threading, "Thread", ImmediateThread)
+
+    session = session_service.create_managed_session(
+        name="launch-deferred",
+        repo_path=str(git_repo),
+        profile="safe-edit",
+        prompt="Refactor service",
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+        defer_launch=True,
+    )
+
+    assert session.status == SessionStatus.STARTING.value
+    assert thread_calls
+    assert any(call[0] == "create_session" for call in runner.calls)
+
+
 def test_reconcile_once_uses_runner_for_tmux_presence(configured_modules, git_repo):
     from app.models.session import SessionStatus
     from app.monitoring.reconciler import reconcile_once

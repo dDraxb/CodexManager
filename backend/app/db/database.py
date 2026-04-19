@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.constants import APP_HOME, DB_PATH, SESSIONS_DIR, WORKTREES_DIR
+
+
+_init_lock = threading.Lock()
+_initialized_db_path: Path | None = None
 
 
 def ensure_storage() -> None:
@@ -18,7 +23,6 @@ def _connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
-    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
@@ -34,9 +38,18 @@ def get_conn() -> sqlite3.Connection:
         conn.close()
 
 
-def init_db() -> None:
-    with get_conn() as conn:
-        conn.execute(
+def init_db(force: bool = False) -> None:
+    global _initialized_db_path
+    if not force and _initialized_db_path == DB_PATH and DB_PATH.exists():
+        return
+
+    with _init_lock:
+        if not force and _initialized_db_path == DB_PATH and DB_PATH.exists():
+            return
+
+        with get_conn() as conn:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
               id TEXT PRIMARY KEY,
@@ -139,7 +152,7 @@ def init_db() -> None:
             )
             """
         )
-        conn.execute(
+            conn.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,10 +165,10 @@ def init_db() -> None:
             )
             """
         )
-        conn.execute(
+            conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, timestamp)"
         )
-        conn.execute(
+            conn.execute(
             """
             CREATE TABLE IF NOT EXISTS validation_history (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,16 +183,17 @@ def init_db() -> None:
             )
             """
         )
-        conn.execute(
+            conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_validation_history_session_time ON validation_history(session_id, timestamp)"
         )
-        conn.execute(
+            conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)"
         )
-        conn.execute(
+            conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_tmux_session ON sessions(tmux_session) WHERE tmux_session IS NOT NULL"
         )
-        _ensure_session_columns(conn)
+            _ensure_session_columns(conn)
+        _initialized_db_path = DB_PATH
 
 
 def _ensure_session_columns(conn: sqlite3.Connection) -> None:

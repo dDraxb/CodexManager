@@ -775,8 +775,8 @@ function activityLabel(session) {
 }
 
 export default function App() {
-  const [summary, setSummary] = useState({ total: 0, counts: {}, needsAttention: 0 })
   const [sessions, setSessions] = useState([])
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [validationPresets, setValidationPresets] = useState([])
   const [configPresets, setConfigPresets] = useState([])
   const [repoPolicies, setRepoPolicies] = useState([])
@@ -837,6 +837,7 @@ export default function App() {
   const previousLogSignatureRef = useRef('')
   const detailRequestRef = useRef(0)
   const loadedDetailSessionRef = useRef(null)
+  const loadedEnvironmentRepoRef = useRef(null)
   const createManagerDefaultsRequestRef = useRef(0)
   const adoptManagerDefaultsRequestRef = useRef(0)
 
@@ -867,6 +868,24 @@ export default function App() {
       return (right.updated_at || '').localeCompare(left.updated_at || '')
     })
   }, [normalizedQuery, sessions, showArchive])
+
+  const derivedSummary = useMemo(() => {
+    const counts = {}
+    let needsAttention = 0
+    for (const session of sessions) {
+      counts[session.status] = (counts[session.status] || 0) + 1
+      if (session.needs_attention) {
+        needsAttention += 1
+      }
+    }
+    return {
+      total: sessions.length,
+      counts,
+      needsAttention,
+    }
+  }, [sessions])
+
+  const snapshotSummary = sessionsLoaded ? derivedSummary : null
 
   const selectedSession = useMemo(
     () => visibleSessions.find((session) => session.id === selectedId) || sessions.find((session) => session.id === selectedId) || null,
@@ -989,28 +1008,29 @@ export default function App() {
     }
   }
 
-  async function loadAll() {
+  async function loadSessions() {
     try {
       setError('')
       const rows = await fetchJson('/api/sessions')
-      startTransition(() => {
-        setSessions(rows)
-      })
+      setSessions(rows)
+      setSessionsLoaded(true)
+    } catch (err) {
+      setSessionsLoaded(true)
+      const message = formatError(err)
+      setError(message)
+      notify('error', message)
+    }
+  }
 
-      const [
-        nextSummary,
-        presetPayload,
-        configPresetPayload,
-        repoPolicyPayload
-      ] = await Promise.all([
-        fetchJson('/api/summary'),
+  async function loadReferenceData() {
+    try {
+      setError('')
+      const [presetPayload, configPresetPayload, repoPolicyPayload] = await Promise.all([
         fetchJson('/api/validation-presets'),
         fetchJson('/api/codex-config-presets'),
         fetchJson('/api/repo-policies')
       ])
-
       startTransition(() => {
-        setSummary(nextSummary)
         setValidationPresets(presetPayload.presets || [])
         setConfigPresets(configPresetPayload.presets || [])
         setRepoPolicies(repoPolicyPayload.policies || [])
@@ -1027,6 +1047,7 @@ export default function App() {
     detailRequestRef.current = requestId
     if (!id) {
       loadedDetailSessionRef.current = null
+      loadedEnvironmentRepoRef.current = null
       setDetail(null)
       setCodexEnvironment(null)
       setEvents([])
@@ -1050,19 +1071,36 @@ export default function App() {
         fetchJson(`/api/sessions/${id}/validation-history?limit=8`),
         fetchJson(`/api/sessions/${id}/logs?tail=120`)
       ])
-      const nextCodexEnvironment = await fetchJson(
-        `/api/codex-environment?repo_path=${encodeURIComponent((nextDetail.repo_path || '').trim())}`
-      )
       if (detailRequestRef.current !== requestId) {
         return
       }
       loadedDetailSessionRef.current = id
       startTransition(() => {
         setDetail(nextDetail)
-        setCodexEnvironment(nextCodexEnvironment)
         setEvents(nextEvents)
         setValidationHistory(nextValidationHistory)
         setLogs(trimTrailingBlankLines((nextLogs.lines || []).map(sanitizeLogLine)))
+      })
+
+      const repoPath = (nextDetail.repo_path || '').trim()
+      if (!repoPath) {
+        loadedEnvironmentRepoRef.current = null
+        setCodexEnvironment(null)
+        return
+      }
+      if (loadedEnvironmentRepoRef.current === repoPath) {
+        return
+      }
+
+      const nextCodexEnvironment = await fetchJson(
+        `/api/codex-environment?repo_path=${encodeURIComponent(repoPath)}`
+      )
+      if (detailRequestRef.current !== requestId) {
+        return
+      }
+      loadedEnvironmentRepoRef.current = repoPath
+      startTransition(() => {
+        setCodexEnvironment(nextCodexEnvironment)
       })
     } catch (err) {
       if (detailRequestRef.current !== requestId) {
@@ -1080,7 +1118,8 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadAll()
+    void loadSessions()
+    void loadReferenceData()
   }, [])
 
   useEffect(() => {
@@ -1089,8 +1128,8 @@ export default function App() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      loadAll()
-      if (selectedId) loadDetail(selectedId)
+      void loadSessions()
+      if (selectedId) void loadDetail(selectedId)
     }, pollIntervalSeconds * 1000)
     return () => clearInterval(interval)
   }, [pollIntervalSeconds, selectedId])
@@ -1176,7 +1215,7 @@ export default function App() {
   }
 
   async function refreshAfterMutation(nextSelectedId = selectedId) {
-    await loadAll()
+    await loadSessions()
     if (nextSelectedId) {
       setSelectedId(nextSelectedId)
       await loadDetail(nextSelectedId)
@@ -1186,6 +1225,18 @@ export default function App() {
     setEvents([])
     setValidationHistory([])
     setLogs([])
+  }
+
+  function upsertSessionRow(nextSession) {
+    setSessions((prev) => {
+      const existingIndex = prev.findIndex((session) => session.id === nextSession.id)
+      if (existingIndex === -1) {
+        return [nextSession, ...prev]
+      }
+      const updated = [...prev]
+      updated[existingIndex] = { ...updated[existingIndex], ...nextSession }
+      return updated
+    })
   }
 
   function startFastPolling(durationMs = 60_000) {
@@ -1208,7 +1259,7 @@ export default function App() {
       if (!payload) return
       await copyOrNotify(payload.command, 'Attach command copied to clipboard')
       startFastPolling()
-      await loadAll()
+      await loadSessions()
       await loadDetail(selectedSession.id)
       return
     }
@@ -1404,7 +1455,10 @@ export default function App() {
     )
     setCreateForm((prev) => ({ ...EMPTY_CREATE_FORM, repoPath: prev.repoPath }))
     setCreateManagerDefaultFields([])
-    await refreshAfterMutation(session.id)
+    upsertSessionRow(session)
+    setSelectedId(session.id)
+    startFastPolling()
+    void refreshAfterMutation(session.id)
   }
 
   async function adoptSession(event) {
@@ -1426,7 +1480,10 @@ export default function App() {
       { rethrow: true }
     )
     setAdoptForm((prev) => ({ ...EMPTY_ADOPT_FORM, repoPath: prev.repoPath }))
-    await refreshAfterMutation(session.id)
+    upsertSessionRow(session)
+    setSelectedId(session.id)
+    startFastPolling()
+    void refreshAfterMutation(session.id)
   }
 
   async function bulkDelete(kind) {
@@ -2319,7 +2376,7 @@ export default function App() {
               ))}
             </select>
           </label>
-          <button onClick={() => loadAll()}>Refresh now</button>
+          <button onClick={() => loadSessions()}>Refresh now</button>
         </div>
       </header>
 
@@ -2329,10 +2386,16 @@ export default function App() {
           <strong>{new Date().toLocaleTimeString()}</strong>
         </div>
         <div className="snapshot-metrics">
-          <span>{summary.total} total</span>
-          <span>{summary.counts.running || 0} running</span>
-          <span>{summary.counts.waiting_input || 0} waiting</span>
-          <span>{summary.needsAttention || 0} need attention</span>
+          {snapshotSummary ? (
+            <>
+              <span>{snapshotSummary.total} total</span>
+              <span>{snapshotSummary.counts.running || 0} running</span>
+              <span>{snapshotSummary.counts.waiting_input || 0} waiting</span>
+              <span>{snapshotSummary.needsAttention || 0} need attention</span>
+            </>
+          ) : (
+            <span>Loading snapshot...</span>
+          )}
         </div>
       </section>
 
@@ -3331,7 +3394,8 @@ export default function App() {
             />
           </div>
           <div className="grid-list compact-grid-list">
-            {visibleSessions.length === 0 ? <p className="muted">No sessions match the current view.</p> : null}
+            {!sessionsLoaded ? <p className="muted">Loading sessions...</p> : null}
+            {sessionsLoaded && visibleSessions.length === 0 ? <p className="muted">No sessions match the current view.</p> : null}
             {visibleSessions.map((session) => (
               <button
                 key={session.id}

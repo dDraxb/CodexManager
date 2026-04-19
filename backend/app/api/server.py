@@ -742,6 +742,7 @@ def session_start(request: StartRequest) -> dict:
             require_changelog=request.require_changelog,
             launch=request.launch,
             manager_defaults_fields=request.manager_defaults_fields,
+            defer_launch=True,
         )
     except SessionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

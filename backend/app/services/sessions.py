@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from sqlite3 import IntegrityError
+from sqlite3 import IntegrityError, OperationalError
 from uuid import uuid4
 
 from app.core.constants import SESSIONS_DIR
@@ -144,6 +145,7 @@ def create_managed_session(
     require_changelog: bool = False,
     manager_defaults_fields: list[str] | None = None,
     runner: RunnerClient | None = None,
+    defer_launch: bool = False,
 ) -> SessionRecord:
     init_db()
     if profile not in PROFILES:
@@ -354,20 +356,70 @@ def create_managed_session(
         return session
 
     session = _transition_status(session, SessionStatus.STARTING, note="Launching Codex in tmux")
+    if defer_launch:
+        threading.Thread(
+            target=_launch_managed_session_background,
+            kwargs={
+                "session_id": session.id,
+                "profile": profile,
+                "prompt": prompt,
+                "repo": repo,
+                "tmux_session": tmux_session,
+                "runner": runner,
+            },
+            daemon=True,
+        ).start()
+        return session
+
+    return _launch_managed_session(
+        session_id=session.id,
+        profile=profile,
+        prompt=prompt,
+        repo=repo,
+        tmux_session=tmux_session,
+        runner=runner,
+        raise_on_error=True,
+    )
+
+
+def _launch_managed_session(
+    *,
+    session_id: str,
+    profile: str,
+    prompt: str | None,
+    repo: str,
+    tmux_session: str,
+    runner: RunnerClient | None = None,
+    raise_on_error: bool = False,
+) -> SessionRecord | None:
+    client = runner or get_runner_client()
+    try:
+        session = get_session(session_id)
+    except OperationalError:
+        if raise_on_error:
+            raise
+        return None
+    if session is None:
+        raise SessionError(f"session not found: {session_id}")
+
     try:
         launch_cmd = client.build_codex_launch_command(profile, prompt)
     except RunnerError as exc:
-        session = _transition_status(session, SessionStatus.FAILED, note=f"Launch failed: {exc}")
-        raise SessionError(str(exc)) from exc
+        failed = _transition_status(session, SessionStatus.FAILED, note=f"Launch failed: {exc}")
+        if raise_on_error:
+            raise SessionError(str(exc)) from exc
+        return failed
 
     try:
         client.create_session(session.tmux_session or tmux_session, session.cwd or repo, session.log_path, launch_cmd)
     except RunnerError as exc:
-        session = _transition_status(session, SessionStatus.FAILED, note=f"Launch failed: {exc}")
+        failed = _transition_status(session, SessionStatus.FAILED, note=f"Launch failed: {exc}")
         with get_conn() as conn:
             conn.execute("UPDATE sessions SET exit_code = ?, updated_at = ? WHERE id = ?", (1, _now_iso(), session.id))
         _event(session.id, "process_exited", "Codex launch failed", {"error": str(exc)})
-        raise SessionError(str(exc)) from exc
+        if raise_on_error:
+            raise SessionError(str(exc)) from exc
+        return failed
 
     pid = client.pane_pid(session.tmux_session or tmux_session)
     with get_conn() as conn:
@@ -376,9 +428,16 @@ def create_managed_session(
             (pid, _now_iso(), _now_iso(), session.id),
         )
         row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
-    session = SessionRecord.from_row(row)
-    _event(session.id, "tmux_session_started", "tmux session started", {"tmux_session": session.tmux_session, "pid": pid})
-    return session
+    launched = SessionRecord.from_row(row)
+    _event(launched.id, "tmux_session_started", "tmux session started", {"tmux_session": launched.tmux_session, "pid": pid})
+    return launched
+
+
+def _launch_managed_session_background(**kwargs) -> None:
+    try:
+        _launch_managed_session(**kwargs)
+    except (OperationalError, SessionError):
+        return
 
 
 def adopt_session(
