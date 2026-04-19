@@ -62,6 +62,10 @@ const EMPTY_EFFECTIVE_MANAGER_DEFAULTS = {
   defaults: {},
   appliedRules: []
 }
+const EMPTY_MANAGER_RULES_PREVIEW_FORM = {
+  repoPath: '',
+  presetId: ''
+}
 const MANAGER_DEFAULT_CREATE_FIELDS = new Set([
   'profile',
   'approvalPolicy',
@@ -224,6 +228,16 @@ function validationLabel(kind, status) {
     return activeLabel
   }
   return `${noun} ${status}`
+}
+
+function formatRulePreviewValue(value) {
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+  if (Array.isArray(value) || (value && typeof value === 'object')) {
+    return JSON.stringify(value)
+  }
+  return String(value ?? '')
 }
 
 function validationActivityLabel(kind, activity) {
@@ -805,6 +819,8 @@ export default function App() {
   const [activeConfigScope, setActiveConfigScope] = useState('global')
   const [codexRules, setCodexRules] = useState(EMPTY_RULES_EDITOR)
   const [managerRules, setManagerRules] = useState(EMPTY_MANAGER_RULES_EDITOR)
+  const [managerRulePreviewForm, setManagerRulePreviewForm] = useState(EMPTY_MANAGER_RULES_PREVIEW_FORM)
+  const [managerRulePreview, setManagerRulePreview] = useState(null)
   const [activeRulesScope, setActiveRulesScope] = useState('workspace')
   const [codexAgents, setCodexAgents] = useState([])
   const [agentForm, setAgentForm] = useState(EMPTY_AGENT_FORM)
@@ -2018,6 +2034,13 @@ export default function App() {
     const payload = await runRequest(() => fetchJson('/api/manager-rules'), null)
     if (!payload) return
     setManagerRules(payload)
+    const selectedRepoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
+    if (selectedRepoPath) {
+      setManagerRulePreviewForm((current) => current.repoPath ? current : {
+        ...current,
+        repoPath: selectedRepoPath
+      })
+    }
   }
 
   async function saveManagerRules() {
@@ -2035,6 +2058,9 @@ export default function App() {
     )
     if (!payload) return
     await loadManagerRules()
+    if (managerRulePreviewForm.repoPath.trim() || managerRulePreviewForm.presetId.trim()) {
+      await loadManagerRulePreview(managerRulePreviewForm.repoPath, managerRulePreviewForm.presetId)
+    }
   }
 
   async function restoreManagerRules(backupPath) {
@@ -2049,6 +2075,39 @@ export default function App() {
     )
     if (!payload) return
     await loadManagerRules()
+    if (managerRulePreviewForm.repoPath.trim() || managerRulePreviewForm.presetId.trim()) {
+      await loadManagerRulePreview(managerRulePreviewForm.repoPath, managerRulePreviewForm.presetId)
+    }
+  }
+
+  async function loadManagerRulePreview(repoPath = managerRulePreviewForm.repoPath, presetId = managerRulePreviewForm.presetId) {
+    const normalizedRepoPath = repoPath.trim()
+    const normalizedPresetId = presetId.trim()
+    const query = new URLSearchParams()
+    if (normalizedRepoPath) {
+      query.set('repo_path', normalizedRepoPath)
+    }
+    if (normalizedPresetId) {
+      query.set('preset_id', normalizedPresetId)
+    }
+    const payload = await runRequest(
+      () => fetchJson(`/api/manager-rules/matches?${query.toString()}`),
+      null
+    )
+    if (!payload) return
+    setManagerRulePreviewForm({
+      repoPath: normalizedRepoPath,
+      presetId: normalizedPresetId
+    })
+    setManagerRulePreview(payload)
+  }
+
+  function useSelectedRepoForManagerRules() {
+    const repoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
+    setManagerRulePreviewForm((current) => ({
+      ...current,
+      repoPath
+    }))
   }
 
   async function loadCodexAgents() {
@@ -3256,6 +3315,101 @@ export default function App() {
                           ) : (
                             <p className="muted">No structured rules loaded yet. The editor accepts a JSON object with a top-level `rules` array.</p>
                           )}
+                        </div>
+                        <div className="history-item">
+                          <div className="row between">
+                            <strong>Rule match preview</strong>
+                            <span className="badge badge-stopped">
+                              {managerRulePreview?.matchedRules?.length || 0} matches
+                            </span>
+                          </div>
+                          <p className="muted">Preview which manager-owned rules match a repo path and optional preset id, and inspect the effective session defaults they produce.</p>
+                          <div className="stack-form">
+                            <label className="field">
+                              <span className="field-label">Repo path</span>
+                              <input
+                                placeholder="/Users/davidblom/Projects/Personal/codex-manager"
+                                value={managerRulePreviewForm.repoPath}
+                                onChange={(event) => setManagerRulePreviewForm((current) => ({
+                                  ...current,
+                                  repoPath: event.target.value
+                                }))}
+                              />
+                            </label>
+                            <label className="field">
+                              <span className="field-label">Preset id</span>
+                              <input
+                                placeholder="optional preset id"
+                                value={managerRulePreviewForm.presetId}
+                                onChange={(event) => setManagerRulePreviewForm((current) => ({
+                                  ...current,
+                                  presetId: event.target.value
+                                }))}
+                              />
+                            </label>
+                            <div className="row gap-sm">
+                              <button type="button" className="ghost" onClick={() => useSelectedRepoForManagerRules()} disabled={!(detail?.repo_path || selectedSession?.repo_path)}>
+                                Use selected repo
+                              </button>
+                              <button type="button" className="primary" onClick={() => loadManagerRulePreview()}>
+                                Preview matches
+                              </button>
+                            </div>
+                          </div>
+                          {managerRulePreview ? (
+                            <div className="rule-summary-list">
+                              <div className="rule-summary-item">
+                                <div className="row between">
+                                  <strong>Effective session defaults</strong>
+                                  <span className="badge badge-running">
+                                    {Object.keys(managerRulePreview.effectiveSessionDefaults?.defaults || {}).length} values
+                                  </span>
+                                </div>
+                                {Object.keys(managerRulePreview.effectiveSessionDefaults?.defaults || {}).length ? (
+                                  <div className="environment-grid">
+                                    {Object.entries(managerRulePreview.effectiveSessionDefaults.defaults).map(([key, value]) => (
+                                      <div key={key} className="history-item">
+                                        <strong>{key}</strong>
+                                        <p className="muted">{formatRulePreviewValue(value)}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="muted">No session-default fields match this preview target.</p>
+                                )}
+                                {managerRulePreview.effectiveSessionDefaults?.appliedRules?.length ? (
+                                  <p className="muted">
+                                    Applied defaults from: {managerRulePreview.effectiveSessionDefaults.appliedRules.map((rule) => rule.label).join(', ')}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <div className="rule-summary-item">
+                                <div className="row between">
+                                  <strong>Matched rules</strong>
+                                  <span className="badge badge-stopped">
+                                    {managerRulePreview.matchedRules?.length || 0} rules
+                                  </span>
+                                </div>
+                                {managerRulePreview.matchedRules?.length ? (
+                                  <div className="rule-summary-list">
+                                    {managerRulePreview.matchedRules.map((rule) => (
+                                      <div key={rule.id} className="rule-summary-item">
+                                        <div className="row between">
+                                          <strong>{rule.label}</strong>
+                                          <span className="badge badge-stopped">{rule.category}</span>
+                                        </div>
+                                        <p className="rule-summary-meta">{rule.id} · {rule.scopeSummary}</p>
+                                        {rule.notes ? <p className="muted">{rule.notes}</p> : null}
+                                        <p className="muted">Content keys: {rule.contentKeys?.length ? rule.contentKeys.join(', ') : 'none'}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="muted">No manager-owned rules match the current preview target.</p>
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                         {managerRules.backups?.length ? (
                           <div className="history-list">

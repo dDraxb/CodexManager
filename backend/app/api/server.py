@@ -15,6 +15,7 @@ from app.services.codex_config_presets import get_manager_codex_config_preset, l
 from app.services.manager_rules import (
     ManagerRulesError,
     effective_session_defaults,
+    preview_manager_rule_matches,
     read_manager_rules,
     restore_manager_rules,
     write_manager_rules,
@@ -342,6 +343,14 @@ def restore_manager_rules_api(request: ManagerRulesRestoreRequest) -> dict:
 def manager_rule_session_defaults(repo_path: str | None = None, preset_id: str | None = None) -> dict:
     try:
         return effective_session_defaults(repo_path=repo_path, preset_id=preset_id)
+    except ManagerRulesError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/manager-rules/matches")
+def manager_rule_matches(repo_path: str | None = None, preset_id: str | None = None) -> dict:
+    try:
+        return preview_manager_rule_matches(repo_path=repo_path, preset_id=preset_id)
     except ManagerRulesError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -693,6 +693,61 @@ def test_api_returns_effective_manager_rule_session_defaults(configured_modules,
     assert [row["id"] for row in payload["appliedRules"]] == ["global-defaults", "repo-defaults"]
 
 
+def test_api_returns_manager_rule_match_preview(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "manager-rules.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "id": "global-defaults",
+                        "label": "Global defaults",
+                        "category": "session_defaults",
+                        "scope": {"level": "global"},
+                        "content": {
+                            "profile": "safe-edit",
+                            "launch": True,
+                        },
+                    },
+                    {
+                        "id": "repo-skill-preferences",
+                        "label": "Repo skill preferences",
+                        "category": "skills",
+                        "scope": {"level": "workspace", "repo_path": "/repo/service-a"},
+                        "content": {
+                            "preferred": ["openai-docs"],
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/api/manager-rules/matches",
+        params={"repo_path": "/repo/service-a/api"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["repoPath"] == "/repo/service-a/api"
+    assert payload["presetId"] == ""
+    assert [row["id"] for row in payload["matchedRules"]] == [
+        "global-defaults",
+        "repo-skill-preferences",
+    ]
+    assert payload["effectiveSessionDefaults"]["defaults"]["profile"] == "safe-edit"
+
+
 def test_api_lists_and_creates_codex_agents(configured_modules, tmp_path, monkeypatch):
     from app.api import server
 

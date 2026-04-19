@@ -130,3 +130,53 @@ def test_effective_session_defaults_merge_global_and_workspace_rules(tmp_path, m
         "global-session-defaults",
         "repo-session-defaults",
     ]
+
+
+def test_preview_manager_rule_matches_returns_rules_and_defaults(tmp_path, monkeypatch):
+    from app.services.manager_rules import preview_manager_rule_matches
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "manager-rules.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "id": "global-session-defaults",
+                        "label": "Global session defaults",
+                        "category": "session_defaults",
+                        "scope": {"level": "global"},
+                        "content": {
+                            "profile": "safe-edit",
+                            "launch": True,
+                        },
+                    },
+                    {
+                        "id": "repo-autonomy",
+                        "label": "Repo autonomy caps",
+                        "category": "autonomy",
+                        "scope": {"level": "workspace", "repo_path": "/repo/service-a"},
+                        "content": {
+                            "max_agents": 2,
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = preview_manager_rule_matches(repo_path="/repo/service-a/api")
+
+    assert payload["repoPath"] == "/repo/service-a/api"
+    assert payload["presetId"] == ""
+    assert [rule["id"] for rule in payload["matchedRules"]] == [
+        "global-session-defaults",
+        "repo-autonomy",
+    ]
+    assert payload["effectiveSessionDefaults"]["defaults"] == {
+        "profile": "safe-edit",
+        "launch": True,
+    }

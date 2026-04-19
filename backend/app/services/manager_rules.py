@@ -233,6 +233,15 @@ def effective_session_defaults(*, repo_path: str | None = None, preset_id: str |
     }
 
 
+def preview_manager_rule_matches(*, repo_path: str | None = None, preset_id: str | None = None) -> dict:
+    return {
+        "repoPath": str(repo_path or "").strip(),
+        "presetId": str(preset_id or "").strip(),
+        "matchedRules": list_matching_manager_rules(repo_path=repo_path, preset_id=preset_id),
+        "effectiveSessionDefaults": effective_session_defaults(repo_path=repo_path, preset_id=preset_id),
+    }
+
+
 def write_manager_rules(*, content: str) -> dict:
     path = _manager_rules_path()
     normalized, summaries = _parse_rules_document(content)
