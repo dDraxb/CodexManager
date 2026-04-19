@@ -36,6 +36,8 @@ def create_session(session_name: str, cwd: str, log_path: str, launch_cmd: str |
 
     command = launch_cmd or os.environ.get("SHELL", "/bin/zsh")
     run(["tmux", "new-session", "-d", "-s", session_name, "-c", cwd, command])
+    # Route wheel scrolling into tmux copy-mode so terminals like Warp can scroll pane history.
+    run(["tmux", "set-option", "-t", session_name, "mouse", "on"])
     # Capture pane output without breaking interactive TTY behavior for Codex.
     run(["tmux", "pipe-pane", "-o", "-t", session_name, f"cat >> {shlex.quote(log_path)}"])
 
@@ -47,7 +49,8 @@ def stop_session(session_name: str) -> None:
 
 
 def attach_command(session_name: str) -> str:
-    return f"tmux attach -t {shlex.quote(session_name)}"
+    quoted = shlex.quote(session_name)
+    return f"tmux set-option -t {quoted} mouse on && tmux attach -t {quoted}"
 
 
 def pane_pid(session_name: str) -> int | None:

@@ -496,6 +496,34 @@ p {
   background: rgba(10, 22, 35, 0.82);
 }
 
+.rule-error {
+  color: var(--danger);
+}
+
+.rule-summary-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rule-summary-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.rule-summary-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.rule-summary-meta {
+  color: var(--muted-strong);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.8rem;
+}
+
 .resume-browser {
   margin-top: 12px;
 }

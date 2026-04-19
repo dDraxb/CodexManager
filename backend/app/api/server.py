@@ -12,6 +12,13 @@ from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
 from app.services.codex_config_presets import get_manager_codex_config_preset, list_manager_codex_config_presets
+from app.services.manager_rules import (
+    ManagerRulesError,
+    effective_session_defaults,
+    read_manager_rules,
+    restore_manager_rules,
+    write_manager_rules,
+)
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -53,6 +60,7 @@ class StartRequest(BaseModel):
     auto_init_git: bool = Field(default=False, alias="autoInitGit")
     require_changelog: bool = Field(default=False, alias="requireChangelog")
     launch: bool = True
+    manager_defaults_fields: list[str] = Field(default_factory=list, alias="managerDefaultsFields")
 
 
 class AdoptRequest(BaseModel):
@@ -111,6 +119,35 @@ class CodexSkillDeleteRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexSkillCatalogListRequest(BaseModel):
+    scope: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+    repo: str = "openai/skills"
+    path: str = "skills/.curated"
+    ref: str = "main"
+
+
+class CodexSkillCatalogInstallRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+    repo: str = "openai/skills"
+    path: str = "skills/.curated"
+    ref: str = "main"
+    method: str = "auto"
+
+
+class CodexSkillGithubInstallRequest(BaseModel):
+    scope: str
+    repo_path: str | None = Field(default=None, alias="repoPath")
+    github_repo: str | None = Field(default=None, alias="githubRepo")
+    github_url: str | None = Field(default=None, alias="githubUrl")
+    github_path: str | None = Field(default=None, alias="githubPath")
+    ref: str = "main"
+    method: str = "auto"
+    name: str | None = None
+
+
 class CodexPromptWriteRequest(BaseModel):
     scope: str
     name: str
@@ -153,6 +190,14 @@ class CodexRulesRestoreRequest(BaseModel):
     scope: str
     backup_path: str = Field(alias="backupPath")
     repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class ManagerRulesWriteRequest(BaseModel):
+    content: str
+
+
+class ManagerRulesRestoreRequest(BaseModel):
+    backup_path: str = Field(alias="backupPath")
 
 
 class CodexAgentCreateRequest(BaseModel):
@@ -270,6 +315,38 @@ def repo_policies() -> dict:
     return {"policies": list_repo_policies()}
 
 
+@app.get("/api/manager-rules")
+def manager_rules() -> dict:
+    try:
+        return read_manager_rules()
+    except ManagerRulesError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/manager-rules")
+def save_manager_rules(request: ManagerRulesWriteRequest) -> dict:
+    try:
+        return write_manager_rules(content=request.content)
+    except ManagerRulesError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/manager-rules/restore")
+def restore_manager_rules_api(request: ManagerRulesRestoreRequest) -> dict:
+    try:
+        return restore_manager_rules(backup_path=request.backup_path)
+    except ManagerRulesError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/manager-rules/effective-session-defaults")
+def manager_rule_session_defaults(repo_path: str | None = None, preset_id: str | None = None) -> dict:
+    try:
+        return effective_session_defaults(repo_path=repo_path, preset_id=preset_id)
+    except ManagerRulesError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/codex-environment")
 def codex_environment(repo_path: str | None = None) -> dict:
     client = get_runner_client()
@@ -325,6 +402,56 @@ def delete_codex_skill_api(request: CodexSkillDeleteRequest) -> dict:
     client = get_runner_client()
     try:
         return client.delete_codex_skill(request.scope, request.name, request.repo_path)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-skills/catalog")
+def codex_skill_catalog(request: CodexSkillCatalogListRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.list_installable_codex_skills(
+            request.scope,
+            request.repo_path,
+            request.repo,
+            request.path,
+            request.ref,
+        )
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-skills/install/catalog")
+def install_codex_skill_catalog(request: CodexSkillCatalogInstallRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.install_codex_skill_from_catalog(
+            request.scope,
+            request.name,
+            request.repo_path,
+            request.repo,
+            request.path,
+            request.ref,
+            request.method,
+        )
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-skills/install/github")
+def install_codex_skill_github(request: CodexSkillGithubInstallRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.install_codex_skill_from_github(
+            request.scope,
+            request.repo_path,
+            request.github_repo,
+            request.github_url,
+            request.github_path,
+            request.ref,
+            request.method,
+            request.name,
+        )
     except RunnerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -614,6 +741,7 @@ def session_start(request: StartRequest) -> dict:
             auto_init_git=request.auto_init_git,
             require_changelog=request.require_changelog,
             launch=request.launch,
+            manager_defaults_fields=request.manager_defaults_fields,
         )
     except SessionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

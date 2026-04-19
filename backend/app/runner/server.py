@@ -109,6 +109,35 @@ class CodexSkillDeleteRequest(BaseModel):
     repo_path: str | None = None
 
 
+class CodexSkillCatalogListRequest(BaseModel):
+    scope: str
+    repo_path: str | None = None
+    repo: str = "openai/skills"
+    path: str = "skills/.curated"
+    ref: str = "main"
+
+
+class CodexSkillCatalogInstallRequest(BaseModel):
+    scope: str
+    name: str
+    repo_path: str | None = None
+    repo: str = "openai/skills"
+    path: str = "skills/.curated"
+    ref: str = "main"
+    method: str = "auto"
+
+
+class CodexSkillGithubInstallRequest(BaseModel):
+    scope: str
+    repo_path: str | None = None
+    github_repo: str | None = None
+    github_url: str | None = None
+    github_path: str | None = None
+    ref: str = "main"
+    method: str = "auto"
+    name: str | None = None
+
+
 class CodexPromptReadRequest(BaseModel):
     scope: str
     name: str
@@ -412,6 +441,59 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     ) -> dict:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.delete_codex_skill(request.scope, request.name, request.repo_path))
+
+    @app.post("/list-installable-codex-skills")
+    def list_installable_codex_skills_endpoint(
+        request: CodexSkillCatalogListRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.list_installable_codex_skills(
+                request.scope,
+                request.repo_path,
+                request.repo,
+                request.path,
+                request.ref,
+            )
+        )
+
+    @app.post("/install-codex-skill-from-catalog")
+    def install_codex_skill_from_catalog_endpoint(
+        request: CodexSkillCatalogInstallRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.install_codex_skill_from_catalog(
+                request.scope,
+                request.name,
+                request.repo_path,
+                request.repo,
+                request.path,
+                request.ref,
+                request.method,
+            )
+        )
+
+    @app.post("/install-codex-skill-from-github")
+    def install_codex_skill_from_github_endpoint(
+        request: CodexSkillGithubInstallRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.install_codex_skill_from_github(
+                request.scope,
+                request.repo_path,
+                request.github_repo,
+                request.github_url,
+                request.github_path,
+                request.ref,
+                request.method,
+                request.name,
+            )
+        )
 
     @app.post("/list-codex-prompts")
     def list_codex_prompts_endpoint(

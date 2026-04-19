@@ -14,8 +14,17 @@ def test_create_session_preserves_tty_and_uses_pipe_pane(monkeypatch):
 
     assert calls == [
         ["tmux", "new-session", "-d", "-s", "codex-demo", "-c", "/tmp/repo", "codex -s workspace-write"],
+        ["tmux", "set-option", "-t", "codex-demo", "mouse", "on"],
         ["tmux", "pipe-pane", "-o", "-t", "codex-demo", "cat >> /tmp/output.log"],
     ]
+
+
+def test_attach_command_enables_mouse_before_attach():
+    from app.services import tmux
+
+    command = tmux.attach_command("codex-demo")
+
+    assert command == "tmux set-option -t codex-demo mouse on && tmux attach -t codex-demo"
 
 
 def test_capture_pane_reads_rendered_lines(monkeypatch):

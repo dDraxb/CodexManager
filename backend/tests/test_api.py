@@ -327,6 +327,102 @@ def test_api_creates_workspace_skill(configured_modules, tmp_path, monkeypatch):
     assert (repo / ".codex" / "skills" / "release-guard" / "SKILL.md").exists()
 
 
+def test_api_lists_installable_codex_skills(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+    from app.runner import client as runner_client
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    monkeypatch.setattr(
+        runner_client,
+        "list_installable_codex_skills",
+        lambda **kwargs: {
+            "scope": kwargs["scope"],
+            "repoPath": kwargs["repo_path"],
+            "repo": kwargs["repo"],
+            "path": kwargs["path"],
+            "ref": kwargs["ref"],
+            "skills": [
+                {
+                    "name": "release-guard",
+                    "installed": False,
+                    "source": {
+                        "type": "catalog",
+                        "repo": kwargs["repo"],
+                        "path": f"{kwargs['path']}/release-guard",
+                        "ref": kwargs["ref"],
+                    },
+                }
+            ],
+        },
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/codex-skills/catalog",
+        json={"scope": "workspace", "repoPath": str(repo), "path": "skills/.experimental"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["scope"] == "workspace"
+    assert payload["path"] == "skills/.experimental"
+    assert payload["skills"][0]["name"] == "release-guard"
+
+
+def test_api_installs_codex_skill_from_github(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+    from app.runner import client as runner_client
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def fake_install(**kwargs):
+        root = repo / ".codex" / "skills" / "release-guard"
+        root.mkdir(parents=True)
+        (root / "SKILL.md").write_text("# Release Guard\n", encoding="utf-8")
+        return {
+            "scope": kwargs["scope"],
+            "name": "release-guard",
+            "path": str(root),
+            "skillFile": str(root / "SKILL.md"),
+            "source": {
+                "type": "github",
+                "repo": kwargs["github_repo"],
+                "path": kwargs["github_path"],
+                "url": kwargs["github_url"],
+                "ref": kwargs["ref"],
+                "method": kwargs["method"],
+            },
+        }
+
+    monkeypatch.setattr(runner_client, "install_codex_skill_from_github", fake_install)
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/codex-skills/install/github",
+        json={
+            "scope": "workspace",
+            "repoPath": str(repo),
+            "githubRepo": "example/skills",
+            "githubPath": "skills/release-guard",
+            "method": "download",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["scope"] == "workspace"
+    assert payload["name"] == "release-guard"
+    assert payload["source"]["repo"] == "example/skills"
+    assert (repo / ".codex" / "skills" / "release-guard" / "SKILL.md").exists()
+
+
 def test_api_reads_and_writes_workspace_codex_config(configured_modules, tmp_path, monkeypatch):
     from app.api import server
 
@@ -439,6 +535,162 @@ def test_api_reads_and_writes_workspace_codex_rules(configured_modules, tmp_path
         },
     )
     assert restore_response.status_code == 200
+
+
+def test_api_reads_writes_and_restores_manager_rules(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    read_response = client.get("/api/manager-rules")
+    assert read_response.status_code == 200
+    assert read_response.json()["exists"] is False
+
+    write_response = client.post(
+        "/api/manager-rules",
+        json={
+            "content": json.dumps(
+                {
+                    "version": 1,
+                    "rules": [
+                        {
+                            "id": "preferred-skills",
+                            "label": "Preferred skills",
+                            "category": "skills",
+                            "enabled": True,
+                            "scope": {"level": "global"},
+                            "content": {"preferred": ["openai-docs", "imagegen"]},
+                        }
+                    ],
+                }
+            )
+        },
+    )
+    assert write_response.status_code == 200, write_response.text
+    assert write_response.json()["ruleCount"] == 1
+
+    second_write = client.post(
+        "/api/manager-rules",
+        json={
+            "content": json.dumps(
+                {
+                    "version": 1,
+                    "rules": [
+                        {
+                            "id": "preferred-skills",
+                            "label": "Preferred skills",
+                            "category": "skills",
+                            "enabled": False,
+                            "scope": {"level": "global"},
+                            "content": {"preferred": ["openai-docs"]},
+                        }
+                    ],
+                }
+            )
+        },
+    )
+    assert second_write.status_code == 200, second_write.text
+
+    list_response = client.get("/api/manager-rules")
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload["exists"] is True
+    assert payload["valid"] is True
+    assert payload["ruleCount"] == 1
+    assert payload["rules"][0]["id"] == "preferred-skills"
+    backups = payload["backups"]
+    assert backups
+
+    restore_response = client.post(
+        "/api/manager-rules/restore",
+        json={"backupPath": backups[0]["path"]},
+    )
+    assert restore_response.status_code == 200
+
+
+def test_api_rejects_invalid_manager_rules(configured_modules):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/manager-rules",
+        json={
+            "content": json.dumps(
+                {
+                    "version": 1,
+                    "rules": [
+                        {
+                            "id": "broken",
+                            "enabled": "yes",
+                            "content": {"mode": "strict"},
+                        }
+                    ],
+                }
+            )
+        },
+    )
+    assert response.status_code == 400
+    assert "expected boolean" in response.text
+
+
+def test_api_returns_effective_manager_rule_session_defaults(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "manager-rules.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "id": "global-defaults",
+                        "category": "session_defaults",
+                        "scope": {"level": "global"},
+                        "content": {
+                            "profile": "safe-edit",
+                            "approval_policy": "on-request",
+                            "launch": True,
+                        },
+                    },
+                    {
+                        "id": "repo-defaults",
+                        "category": "session_defaults",
+                        "scope": {"level": "workspace", "repo_path": "/repo/service-a"},
+                        "content": {
+                            "profile": "full-agent",
+                            "create_worktree_for_writes": True,
+                            "require_changelog": True,
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/api/manager-rules/effective-session-defaults",
+        params={"repo_path": "/repo/service-a/api"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["defaults"]["profile"] == "full-agent"
+    assert payload["defaults"]["approvalPolicy"] == "on-request"
+    assert payload["defaults"]["createWorktreeForWrites"] is True
+    assert payload["defaults"]["requireChangelog"] is True
+    assert [row["id"] for row in payload["appliedRules"]] == ["global-defaults", "repo-defaults"]
 
 
 def test_api_lists_and_creates_codex_agents(configured_modules, tmp_path, monkeypatch):
@@ -853,6 +1105,124 @@ def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo,
     assert payload["require_changelog"] == 1
     assert payload["worktree_path"]
     assert payload["cwd"] == payload["worktree_path"]
+
+
+def test_api_start_applies_selected_manager_defaults(configured_modules, git_repo, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "manager-rules.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "id": "repo-session-defaults",
+                        "label": "Repo session defaults",
+                        "category": "session_defaults",
+                        "scope": {"level": "workspace", "repo_path": str(git_repo)},
+                        "content": {
+                            "profile": "full-agent",
+                            "approval_policy": "never",
+                            "create_worktree_for_writes": True,
+                            "require_changelog": True,
+                            "launch": False,
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "manager-defaults-enforced",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "approvalPolicy": "on-request",
+            "createWorktreeForWrites": False,
+            "requireChangelog": False,
+            "launch": True,
+            "managerDefaultsFields": [
+                "profile",
+                "approvalPolicy",
+                "createWorktreeForWrites",
+                "requireChangelog",
+                "launch",
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["profile"] == "full-agent"
+    assert payload["approval_policy"] == "never"
+    assert payload["require_changelog"] == 1
+    assert payload["worktree_path"]
+    assert payload["cwd"] == payload["worktree_path"]
+    assert payload["status"] == "created"
+
+
+def test_api_start_respects_user_overrides_outside_selected_manager_defaults(configured_modules, git_repo, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "manager-rules.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "id": "repo-session-defaults",
+                        "label": "Repo session defaults",
+                        "category": "session_defaults",
+                        "scope": {"level": "workspace", "repo_path": str(git_repo)},
+                        "content": {
+                            "profile": "full-agent",
+                            "approval_policy": "never",
+                            "create_worktree_for_writes": True,
+                            "require_changelog": True,
+                            "launch": False,
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "manager-defaults-partial",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "approvalPolicy": "on-request",
+            "createWorktreeForWrites": False,
+            "requireChangelog": False,
+            "launch": True,
+            "managerDefaultsFields": ["approvalPolicy"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["profile"] == "safe-edit"
+    assert payload["approval_policy"] == "never"
+    assert payload["require_changelog"] == 0
+    assert payload["worktree_path"] is None
+    assert payload["cwd"] == str(git_repo.resolve())
+    assert payload["status"] == "starting"
 
 
 def test_api_applies_validation_preset(configured_modules, tmp_path, monkeypatch):

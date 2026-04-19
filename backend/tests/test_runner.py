@@ -93,6 +93,71 @@ class RecordingRunner:
         self.calls.append(("materialize_validation_recipe", repo_path, recipe_json))
         return f"{repo_path}/.codexmgr.validation.json"
 
+    def inspect_codex_environment(self, repo_path: str | None) -> dict:
+        self.calls.append(("inspect_codex_environment", repo_path))
+        return {"repoPath": repo_path}
+
+    def create_codex_skill(self, scope: str, name: str, summary: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("create_codex_skill", scope, name, summary, repo_path))
+        return {"scope": scope, "name": name}
+
+    def read_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("read_codex_skill", scope, name, repo_path))
+        return {"scope": scope, "name": name}
+
+    def write_codex_skill(self, scope: str, name: str, content: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("write_codex_skill", scope, name, content, repo_path))
+        return {"scope": scope, "name": name}
+
+    def restore_codex_skill(self, scope: str, name: str, backup_path: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("restore_codex_skill", scope, name, backup_path, repo_path))
+        return {"scope": scope, "name": name}
+
+    def delete_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("delete_codex_skill", scope, name, repo_path))
+        return {"scope": scope, "name": name}
+
+    def list_installable_codex_skills(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+    ) -> dict:
+        self.calls.append(("list_installable_codex_skills", scope, repo_path, repo, path, ref))
+        return {"scope": scope, "repoPath": repo_path, "repo": repo, "path": path, "ref": ref, "skills": []}
+
+    def install_codex_skill_from_catalog(
+        self,
+        scope: str,
+        name: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+        method: str = "auto",
+    ) -> dict:
+        self.calls.append(("install_codex_skill_from_catalog", scope, name, repo_path, repo, path, ref, method))
+        return {"scope": scope, "name": name, "path": f"/tmp/{name}", "skillFile": f"/tmp/{name}/SKILL.md"}
+
+    def install_codex_skill_from_github(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        github_repo: str | None = None,
+        github_url: str | None = None,
+        github_path: str | None = None,
+        ref: str = "main",
+        method: str = "auto",
+        name: str | None = None,
+    ) -> dict:
+        self.calls.append(
+            ("install_codex_skill_from_github", scope, repo_path, github_repo, github_url, github_path, ref, method, name)
+        )
+        installed_name = name or "installed-skill"
+        return {"scope": scope, "name": installed_name, "path": f"/tmp/{installed_name}", "skillFile": f"/tmp/{installed_name}/SKILL.md"}
+
     def find_recent_codex_session(self, cwd: str, prompt: str | None, since: str | None) -> str | None:
         self.calls.append(("find_recent_codex_session", cwd, prompt, since))
         return None

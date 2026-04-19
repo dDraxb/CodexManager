@@ -44,6 +44,12 @@ from app.services.codex_skills import (
     restore_codex_skill,
     write_codex_skill,
 )
+from app.services.codex_skill_installer import (
+    CodexSkillInstallError,
+    install_codex_skill_from_catalog,
+    install_codex_skill_from_github,
+    list_installable_codex_skills,
+)
 from app.services.shell import ShellError, command_exists
 from app.services.tmux import attach_command as tmux_attach_command
 from app.services.tmux import capture_pane as tmux_capture_pane
@@ -196,6 +202,67 @@ class LocalRunnerClient(RunnerClient):
         try:
             return delete_codex_skill(scope=scope, name=name, repo_path=repo_path)
         except CodexSkillError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def list_installable_codex_skills(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+    ) -> dict:
+        try:
+            return list_installable_codex_skills(scope=scope, repo_path=repo_path, repo=repo, path=path, ref=ref)
+        except CodexSkillInstallError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def install_codex_skill_from_catalog(
+        self,
+        scope: str,
+        name: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+        method: str = "auto",
+    ) -> dict:
+        try:
+            return install_codex_skill_from_catalog(
+                scope=scope,
+                name=name,
+                repo_path=repo_path,
+                repo=repo,
+                path=path,
+                ref=ref,
+                method=method,
+            )
+        except CodexSkillInstallError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def install_codex_skill_from_github(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        github_repo: str | None = None,
+        github_url: str | None = None,
+        github_path: str | None = None,
+        ref: str = "main",
+        method: str = "auto",
+        name: str | None = None,
+    ) -> dict:
+        try:
+            return install_codex_skill_from_github(
+                scope=scope,
+                repo_path=repo_path,
+                github_repo=github_repo,
+                github_url=github_url,
+                github_path=github_path,
+                ref=ref,
+                method=method,
+                name=name,
+            )
+        except CodexSkillInstallError as exc:
             raise RunnerError(str(exc)) from exc
 
     def list_codex_prompts(self, scope: str, repo_path: str | None = None) -> list[dict]:
@@ -534,6 +601,67 @@ class RemoteRunnerClient(RunnerClient):
 
     def delete_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
         return self._post("/delete-codex-skill", {"scope": scope, "name": name, "repo_path": repo_path})
+
+    def list_installable_codex_skills(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+    ) -> dict:
+        return self._post(
+            "/list-installable-codex-skills",
+            {"scope": scope, "repo_path": repo_path, "repo": repo, "path": path, "ref": ref},
+        )
+
+    def install_codex_skill_from_catalog(
+        self,
+        scope: str,
+        name: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+        method: str = "auto",
+    ) -> dict:
+        return self._post(
+            "/install-codex-skill-from-catalog",
+            {
+                "scope": scope,
+                "name": name,
+                "repo_path": repo_path,
+                "repo": repo,
+                "path": path,
+                "ref": ref,
+                "method": method,
+            },
+        )
+
+    def install_codex_skill_from_github(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        github_repo: str | None = None,
+        github_url: str | None = None,
+        github_path: str | None = None,
+        ref: str = "main",
+        method: str = "auto",
+        name: str | None = None,
+    ) -> dict:
+        return self._post(
+            "/install-codex-skill-from-github",
+            {
+                "scope": scope,
+                "repo_path": repo_path,
+                "github_repo": github_repo,
+                "github_url": github_url,
+                "github_path": github_path,
+                "ref": ref,
+                "method": method,
+                "name": name,
+            },
+        )
 
     def list_codex_prompts(self, scope: str, repo_path: str | None = None) -> list[dict]:
         payload = self._post("/list-codex-prompts", {"scope": scope, "repo_path": repo_path})

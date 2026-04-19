@@ -56,6 +56,41 @@ class RunnerClient(Protocol):
     def delete_codex_skill(self, scope: str, name: str, repo_path: str | None = None) -> dict:
         """Delete a global or workspace Codex skill directory."""
 
+    def list_installable_codex_skills(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+    ) -> dict:
+        """List installable external Codex skills for the selected scope."""
+
+    def install_codex_skill_from_catalog(
+        self,
+        scope: str,
+        name: str,
+        repo_path: str | None = None,
+        repo: str = "openai/skills",
+        path: str = "skills/.curated",
+        ref: str = "main",
+        method: str = "auto",
+    ) -> dict:
+        """Install a catalog skill into the selected Codex skills root."""
+
+    def install_codex_skill_from_github(
+        self,
+        scope: str,
+        repo_path: str | None = None,
+        github_repo: str | None = None,
+        github_url: str | None = None,
+        github_path: str | None = None,
+        ref: str = "main",
+        method: str = "auto",
+        name: str | None = None,
+    ) -> dict:
+        """Install a Codex skill from a GitHub repo/path or URL."""
+
     def list_codex_prompts(self, scope: str, repo_path: str | None = None) -> list[dict]:
         """List global or workspace Codex prompt assets."""
 

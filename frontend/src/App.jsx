@@ -8,6 +8,7 @@ const EMPTY_CREATE_FORM = {
   name: '',
   repoPath: '',
   profile: 'safe-edit',
+  approvalPolicy: 'on-request',
   prompt: '',
   createWorktreeForWrites: false,
   autoInitGit: false,
@@ -28,6 +29,17 @@ const EMPTY_SKILL_FORM = {
   summary: ''
 }
 
+const EMPTY_SKILL_INSTALL_FORM = {
+  scope: 'global',
+  catalogPath: 'skills/.curated',
+  selectedSkill: '',
+  githubRepo: '',
+  githubPath: '',
+  githubUrl: '',
+  name: '',
+  method: 'auto'
+}
+
 const EMPTY_CONFIG_EDITOR = {
   global: null,
   workspace: null
@@ -44,6 +56,20 @@ const EMPTY_RULES_EDITOR = {
   global: null,
   workspace: null
 }
+
+const EMPTY_MANAGER_RULES_EDITOR = null
+const EMPTY_EFFECTIVE_MANAGER_DEFAULTS = {
+  defaults: {},
+  appliedRules: []
+}
+const MANAGER_DEFAULT_CREATE_FIELDS = new Set([
+  'profile',
+  'approvalPolicy',
+  'createWorktreeForWrites',
+  'autoInitGit',
+  'requireChangelog',
+  'launch'
+])
 
 const EMPTY_AGENT_FORM = {
   name: '',
@@ -90,6 +116,26 @@ const EMPTY_MCP_FORM = {
   args: '',
   editing: false
 }
+
+const MANAGER_RULES_TEMPLATE = `{
+  "version": 1,
+  "rules": [
+    {
+      "id": "repo-autonomy-defaults",
+      "label": "Repo autonomy defaults",
+      "category": "autonomy",
+      "enabled": true,
+      "scope": {
+        "level": "global"
+      },
+      "notes": "Example manager-owned rule.",
+      "content": {
+        "max_agents": 2,
+        "allow_background_tasks": true
+      }
+    }
+  ]
+}`
 
 const COMMAND_TABS = [
   { id: 'create', label: 'New session' },
@@ -662,16 +708,18 @@ function isArchivedSession(session) {
   return ARCHIVE_STATUSES.has(session.status)
 }
 
-function buildCreatePayload(form) {
+function buildCreatePayload(form, managerDefaultsFields = []) {
   return {
     name: form.name.trim(),
     repoPath: form.repoPath.trim(),
     profile: form.profile,
+    approvalPolicy: form.approvalPolicy,
     prompt: form.prompt.trim() || null,
     createWorktreeForWrites: form.createWorktreeForWrites,
     autoInitGit: form.autoInitGit,
     requireChangelog: form.requireChangelog,
-    launch: form.launch
+    launch: form.launch,
+    managerDefaultsFields
   }
 }
 
@@ -732,6 +780,9 @@ export default function App() {
   const [validationPresets, setValidationPresets] = useState([])
   const [configPresets, setConfigPresets] = useState([])
   const [repoPolicies, setRepoPolicies] = useState([])
+  const [createManagerDefaults, setCreateManagerDefaults] = useState(EMPTY_EFFECTIVE_MANAGER_DEFAULTS)
+  const [createManagerDefaultFields, setCreateManagerDefaultFields] = useState([])
+  const [adoptManagerDefaults, setAdoptManagerDefaults] = useState(EMPTY_EFFECTIVE_MANAGER_DEFAULTS)
   const [selectedValidationPreset, setSelectedValidationPreset] = useState('')
   const [selectedConfigPreset, setSelectedConfigPreset] = useState('')
   const [recipeDraft, setRecipeDraft] = useState(null)
@@ -747,10 +798,13 @@ export default function App() {
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
   const [adoptForm, setAdoptForm] = useState(EMPTY_ADOPT_FORM)
   const [skillForm, setSkillForm] = useState(EMPTY_SKILL_FORM)
+  const [skillInstallForm, setSkillInstallForm] = useState(EMPTY_SKILL_INSTALL_FORM)
+  const [skillCatalog, setSkillCatalog] = useState({ skills: [], path: 'skills/.curated' })
   const [codexConfigs, setCodexConfigs] = useState(EMPTY_CONFIG_EDITOR)
   const [configPreview, setConfigPreview] = useState(EMPTY_CONFIG_PREVIEW)
   const [activeConfigScope, setActiveConfigScope] = useState('global')
   const [codexRules, setCodexRules] = useState(EMPTY_RULES_EDITOR)
+  const [managerRules, setManagerRules] = useState(EMPTY_MANAGER_RULES_EDITOR)
   const [activeRulesScope, setActiveRulesScope] = useState('workspace')
   const [codexAgents, setCodexAgents] = useState([])
   const [agentForm, setAgentForm] = useState(EMPTY_AGENT_FORM)
@@ -783,6 +837,8 @@ export default function App() {
   const previousLogSignatureRef = useRef('')
   const detailRequestRef = useRef(0)
   const loadedDetailSessionRef = useRef(null)
+  const createManagerDefaultsRequestRef = useRef(0)
+  const adoptManagerDefaultsRequestRef = useRef(0)
 
   const deferredQuery = useDeferredValue(sessionQuery)
   const normalizedQuery = deferredQuery.trim().toLowerCase()
@@ -1256,6 +1312,9 @@ export default function App() {
 
   function onCreateField(field, value) {
     setCreateForm((prev) => ({ ...prev, [field]: value }))
+    if (MANAGER_DEFAULT_CREATE_FIELDS.has(field)) {
+      setCreateManagerDefaultFields((prev) => prev.filter((item) => item !== field))
+    }
   }
 
   function onAdoptField(field, value) {
@@ -1267,6 +1326,7 @@ export default function App() {
     setCreateForm((prev) => ({
       ...prev,
       profile: matchedCreatePolicy.default_profile || prev.profile,
+      approvalPolicy: matchedCreatePolicy.default_approval_policy || prev.approvalPolicy,
       createWorktreeForWrites: prev.createWorktreeForWrites || !!matchedCreatePolicy.require_worktree_for_write,
       requireChangelog: prev.requireChangelog || !!matchedCreatePolicy.require_changelog
     }))
@@ -1276,9 +1336,57 @@ export default function App() {
     notify('success', `Applied repo policy defaults from ${matchedCreatePolicy.policy_id}`)
   }
 
+  function applyCreateManagerDefaults() {
+    const defaults = createManagerDefaults?.defaults || {}
+    if (!Object.keys(defaults).length) return
+    const nextManagerFields = Object.keys(defaults).filter((field) => MANAGER_DEFAULT_CREATE_FIELDS.has(field))
+    setCreateForm((prev) => ({
+      ...prev,
+      profile: defaults.profile || prev.profile,
+      approvalPolicy: defaults.approvalPolicy || prev.approvalPolicy,
+      createWorktreeForWrites: defaults.createWorktreeForWrites ?? prev.createWorktreeForWrites,
+      autoInitGit: defaults.autoInitGit ?? prev.autoInitGit,
+      requireChangelog: defaults.requireChangelog ?? prev.requireChangelog,
+      launch: defaults.launch ?? prev.launch
+    }))
+    setCreateManagerDefaultFields(nextManagerFields)
+    if (defaults.createWorktreeForWrites || defaults.autoInitGit || defaults.requireChangelog || defaults.approvalPolicy) {
+      setShowCreateAdvanced(true)
+    }
+    notify('success', `Applied manager-owned defaults from ${createManagerDefaults.appliedRules.map((rule) => rule.id).join(', ')}`)
+  }
+
+  async function loadManagerRuleDefaults(target, repoPath) {
+    const normalizedRepoPath = repoPath.trim()
+    const requestRef = target === 'create' ? createManagerDefaultsRequestRef : adoptManagerDefaultsRequestRef
+    const requestId = requestRef.current + 1
+    requestRef.current = requestId
+    if (!normalizedRepoPath) {
+      if (target === 'create') {
+        setCreateManagerDefaults(EMPTY_EFFECTIVE_MANAGER_DEFAULTS)
+        setCreateManagerDefaultFields([])
+      } else {
+        setAdoptManagerDefaults(EMPTY_EFFECTIVE_MANAGER_DEFAULTS)
+      }
+      return
+    }
+    const payload = await runRequest(
+      () => fetchJson(`/api/manager-rules/effective-session-defaults?repo_path=${encodeURIComponent(normalizedRepoPath)}`),
+      null
+    )
+    if (!payload) return
+    if (requestRef.current !== requestId) return
+    if (target === 'create') {
+      setCreateManagerDefaults(payload)
+      setCreateManagerDefaultFields([])
+    } else {
+      setAdoptManagerDefaults(payload)
+    }
+  }
+
   async function createSession(event) {
     event.preventDefault()
-    const payload = buildCreatePayload(createForm)
+    const payload = buildCreatePayload(createForm, createManagerDefaultFields)
     if (!payload.name) {
       notify('error', 'Session name is required')
       return
@@ -1295,6 +1403,7 @@ export default function App() {
       { rethrow: true }
     )
     setCreateForm((prev) => ({ ...EMPTY_CREATE_FORM, repoPath: prev.repoPath }))
+    setCreateManagerDefaultFields([])
     await refreshAfterMutation(session.id)
   }
 
@@ -1361,6 +1470,116 @@ export default function App() {
     if (!result) return
     setSkillForm((prev) => ({ ...EMPTY_SKILL_FORM, scope: prev.scope }))
     await loadCodexSkill(result.scope, result.name)
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+  }
+
+  async function loadSkillCatalog(scope = skillInstallForm.scope, catalogPath = skillInstallForm.catalogPath) {
+    const repoPath = scope === 'workspace' ? (detail?.repo_path || selectedSession?.repo_path || '') : null
+    if (scope === 'workspace' && !repoPath) {
+      setSkillCatalog({ skills: [], path: catalogPath })
+      return
+    }
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-skills/catalog', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            repoPath,
+            path: catalogPath
+          })
+        }),
+      null
+    )
+    if (!payload) return
+    setSkillCatalog(payload)
+    setSkillInstallForm((prev) => ({
+      ...prev,
+      scope,
+      catalogPath,
+      selectedSkill: payload.skills?.some((skill) => skill.name === prev.selectedSkill)
+        ? prev.selectedSkill
+        : (payload.skills?.[0]?.name || '')
+    }))
+  }
+
+  async function installCatalogSkill(nameOverride) {
+    const scope = skillInstallForm.scope
+    const repoPath = scope === 'workspace' ? (detail?.repo_path || selectedSession?.repo_path || '') : null
+    if (scope === 'workspace' && !repoPath) {
+      notify('error', 'Select a session with a working directory for workspace installs')
+      return
+    }
+    const skillName = (nameOverride || skillInstallForm.selectedSkill || '').trim()
+    if (!skillName) {
+      notify('error', 'Select a catalog skill first')
+      return
+    }
+    const result = await runRequest(
+      () =>
+        fetchJson('/api/codex-skills/install/catalog', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            repoPath,
+            name: skillName,
+            path: skillInstallForm.catalogPath,
+            method: skillInstallForm.method
+          })
+        }),
+      (installed) => `Installed ${installed.name} into ${installed.scope} skills. Restart Codex to pick up new skills.`
+    )
+    if (!result) return
+    await loadSkillCatalog(scope, skillInstallForm.catalogPath)
+    await loadCodexSkill(scope, result.name)
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+  }
+
+  async function installGithubSkill(event) {
+    event.preventDefault()
+    const scope = skillInstallForm.scope
+    const repoPath = scope === 'workspace' ? (detail?.repo_path || selectedSession?.repo_path || '') : null
+    if (scope === 'workspace' && !repoPath) {
+      notify('error', 'Select a session with a working directory for workspace installs')
+      return
+    }
+    if (!skillInstallForm.githubUrl.trim() && !(skillInstallForm.githubRepo.trim() && skillInstallForm.githubPath.trim())) {
+      notify('error', 'Provide a GitHub URL or a repo plus path')
+      return
+    }
+    const result = await runRequest(
+      () =>
+        fetchJson('/api/codex-skills/install/github', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            repoPath,
+            githubRepo: skillInstallForm.githubUrl.trim() ? null : skillInstallForm.githubRepo.trim(),
+            githubPath: skillInstallForm.githubUrl.trim() ? null : skillInstallForm.githubPath.trim(),
+            githubUrl: skillInstallForm.githubUrl.trim() || null,
+            name: skillInstallForm.name.trim() || null,
+            method: skillInstallForm.method
+          })
+        }),
+      (installed) => `Installed ${installed.name} into ${installed.scope} skills. Restart Codex to pick up new skills.`
+    )
+    if (!result) return
+    setSkillInstallForm((prev) => ({
+      ...prev,
+      githubRepo: '',
+      githubPath: '',
+      githubUrl: '',
+      name: ''
+    }))
+    await loadSkillCatalog(scope, skillInstallForm.catalogPath)
+    await loadCodexSkill(scope, result.name)
     if (selectedSession?.id) {
       await loadDetail(selectedSession.id)
     }
@@ -1738,6 +1957,43 @@ export default function App() {
     await loadCodexRules(scope)
   }
 
+  async function loadManagerRules() {
+    const payload = await runRequest(() => fetchJson('/api/manager-rules'), null)
+    if (!payload) return
+    setManagerRules(payload)
+  }
+
+  async function saveManagerRules() {
+    if (!managerRules) return
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/manager-rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: managerRules.content
+          })
+        }),
+      (result) => `Saved manager-owned rules at ${result.path}`
+    )
+    if (!payload) return
+    await loadManagerRules()
+  }
+
+  async function restoreManagerRules(backupPath) {
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/manager-rules/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ backupPath })
+        }),
+      (result) => `Restored manager-owned rules from ${result.restoredFrom}`
+    )
+    if (!payload) return
+    await loadManagerRules()
+  }
+
   async function loadCodexAgents() {
     const payload = await runRequest(() => fetchJson('/api/codex-agents'), null)
     if (!payload) return
@@ -1995,6 +2251,14 @@ export default function App() {
   const archivedCount = sessions.filter((session) => isArchivedSession(session)).length
 
   useEffect(() => {
+    loadManagerRuleDefaults('create', createForm.repoPath)
+  }, [createForm.repoPath])
+
+  useEffect(() => {
+    loadManagerRuleDefaults('adopt', adoptForm.repoPath)
+  }, [adoptForm.repoPath])
+
+  useEffect(() => {
     if (commandTab !== 'environment' || !showCommandPanel) return
     loadCodexConfig('global')
     if (detail?.repo_path || selectedSession?.repo_path) {
@@ -2008,14 +2272,21 @@ export default function App() {
     } else {
       setCodexRules((current) => ({ ...current, workspace: null }))
     }
+    loadManagerRules()
     loadCodexAgents()
     loadCodexMcp('global')
+    loadSkillCatalog(skillInstallForm.scope, skillInstallForm.catalogPath)
     if (detail?.repo_path || selectedSession?.repo_path) {
       loadCodexMcp('workspace')
     } else {
       setCodexMcp((current) => ({ ...current, workspace: [] }))
     }
   }, [commandTab, detail?.repo_path, selectedSession?.repo_path, showCommandPanel])
+
+  useEffect(() => {
+    if (!showCommandPanel || commandTab !== 'environment' || environmentSection !== 'assets') return
+    loadSkillCatalog(skillInstallForm.scope, skillInstallForm.catalogPath)
+  }, [skillInstallForm.scope, skillInstallForm.catalogPath, showCommandPanel, commandTab, environmentSection, detail?.repo_path, selectedSession?.repo_path])
 
   useEffect(() => {
     if (commandTab !== 'environment' || !showCommandPanel) return
@@ -2155,6 +2426,23 @@ export default function App() {
                         <button type="button" className="ghost" onClick={applyCreatePolicyDefaults}>Apply policy defaults</button>
                       </div>
                     ) : null}
+                    {createManagerDefaults.appliedRules?.length ? (
+                      <div className="policy-hint">
+                        <p><strong>Matched manager rules:</strong> {createManagerDefaults.appliedRules.map((rule) => rule.label).join(', ')}</p>
+                        <p className="muted">
+                          {createManagerDefaults.defaults.profile ? `Profile: ${createManagerDefaults.defaults.profile}. ` : ''}
+                          {createManagerDefaults.defaults.approvalPolicy ? `Approval: ${createManagerDefaults.defaults.approvalPolicy}. ` : ''}
+                          {createManagerDefaults.defaults.createWorktreeForWrites ? 'Worktree isolation enabled. ' : ''}
+                          {createManagerDefaults.defaults.requireChangelog ? 'CHANGELOG required. ' : ''}
+                          {createManagerDefaults.defaults.autoInitGit ? 'Git auto-init enabled. ' : ''}
+                          {createManagerDefaults.defaults.launch === false ? 'Launch disabled until you start manually. ' : ''}
+                        </p>
+                        {createManagerDefaultFields.length ? (
+                          <p className="muted">Active on launch: {createManagerDefaultFields.join(', ')}</p>
+                        ) : null}
+                        <button type="button" className="ghost" onClick={applyCreateManagerDefaults}>Apply manager defaults</button>
+                      </div>
+                    ) : null}
                     {validationPresets.length ? (
                       <p className="muted">Manager validation presets: {validationPresets.map((preset) => preset.id).join(', ')}</p>
                     ) : null}
@@ -2178,6 +2466,14 @@ export default function App() {
 
                 {showCreateAdvanced ? (
                   <div className="advanced-box advanced-grid">
+                    <label className="field">
+                      <span>Approval policy</span>
+                      <select value={createForm.approvalPolicy} onChange={(event) => onCreateField('approvalPolicy', event.target.value)}>
+                        <option value="on-request">on-request</option>
+                        <option value="on-failure">on-failure</option>
+                        <option value="never">never</option>
+                      </select>
+                    </label>
                     <label className="toggle">
                       <input
                         type="checkbox"
@@ -2245,6 +2541,17 @@ export default function App() {
                           {matchedAdoptPolicy.require_changelog ? 'This repo expects a CHANGELOG entry for tracked work. ' : ''}
                           {matchedAdoptPolicy.default_profile ? `Suggested profile: ${matchedAdoptPolicy.default_profile}. ` : ''}
                           {matchedAdoptPolicy.default_approval_policy ? `Default approval: ${matchedAdoptPolicy.default_approval_policy}.` : ''}
+                        </p>
+                      </div>
+                    ) : null}
+                    {adoptManagerDefaults.appliedRules?.length ? (
+                      <div className="policy-hint">
+                        <p><strong>Matched manager rules:</strong> {adoptManagerDefaults.appliedRules.map((rule) => rule.label).join(', ')}</p>
+                        <p className="muted">
+                          {adoptManagerDefaults.defaults.profile ? `Suggested profile: ${adoptManagerDefaults.defaults.profile}. ` : ''}
+                          {adoptManagerDefaults.defaults.createWorktreeForWrites ? 'Future writable resumes should use worktree isolation. ' : ''}
+                          {adoptManagerDefaults.defaults.requireChangelog ? 'This repo expects tracked work to keep a CHANGELOG entry. ' : ''}
+                          {adoptManagerDefaults.defaults.launch === false ? 'Matching rules currently prefer a non-launched create flow. ' : ''}
                         </p>
                       </div>
                     ) : null}
@@ -2462,10 +2769,101 @@ export default function App() {
                 <div className="row between history-browser-head">
                   <div>
                     <p className="eyebrow">Skills and Prompt Assets</p>
-                    <p className="muted">Manage local Codex skills and prompt assets on this machine. External catalog installation is not wired in yet.</p>
+                    <p className="muted">Manage local Codex skills and prompt assets on this machine, including installs from the curated OpenAI skills catalog or a GitHub path.</p>
                   </div>
                   <span className="badge badge-stopped">local assets</span>
                 </div>
+              </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">External Skill Install</p>
+                    <p className="muted">Install curated or GitHub-hosted skills directly into the selected global or workspace skills root.</p>
+                  </div>
+                  <span className="badge badge-idle">{skillCatalog.skills?.length || 0} catalog skills</span>
+                </div>
+                <div className="stack-form">
+                  <div className="command-settings-grid adopt-settings-grid">
+                    <label className="field">
+                      <span>Install scope</span>
+                      <select value={skillInstallForm.scope} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, scope: event.target.value }))}>
+                        <option value="global">global</option>
+                        <option value="workspace">workspace</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Catalog source</span>
+                      <select value={skillInstallForm.catalogPath} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, catalogPath: event.target.value, selectedSkill: '' }))}>
+                        <option value="skills/.curated">curated</option>
+                        <option value="skills/.experimental">experimental</option>
+                      </select>
+                    </label>
+                    <div className="helper-copy">
+                      <span className="field-label">Install target</span>
+                      <p className="muted">
+                        {skillInstallForm.scope === 'workspace'
+                          ? `Workspace installs go under ${(detail?.repo_path || selectedSession?.repo_path || 'the selected repo')}/.codex/skills`
+                          : `Global installs go under ${codexEnvironment?.codexHome || '~/.codex'}/skills`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="command-form-grid">
+                    <label className="field">
+                      <span>Catalog skill</span>
+                      <select value={skillInstallForm.selectedSkill} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, selectedSkill: event.target.value }))}>
+                        <option value="">Select a skill</option>
+                        {skillCatalog.skills?.map((skill) => (
+                          <option key={skill.name} value={skill.name}>{skill.installed ? `${skill.name} (installed)` : skill.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Install method</span>
+                      <select value={skillInstallForm.method} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, method: event.target.value }))}>
+                        <option value="auto">auto</option>
+                        <option value="download">download</option>
+                        <option value="git">git</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="row gap-sm">
+                    <button type="button" className="ghost" onClick={() => loadSkillCatalog(skillInstallForm.scope, skillInstallForm.catalogPath)}>Refresh catalog</button>
+                    <button type="button" className="primary" onClick={() => installCatalogSkill()}>Install selected catalog skill</button>
+                  </div>
+                  {skillCatalog.skills?.length ? (
+                    <div className="history-list">
+                      {skillCatalog.skills.slice(0, 12).map((skill) => (
+                        <div key={skill.name} className="history-item">
+                          <div className="row between">
+                            <strong>{skill.name}</strong>
+                            <span className={`badge ${skill.installed ? 'badge-running' : 'badge-stopped'}`}>
+                              {skill.installed ? 'installed' : 'available'}
+                            </span>
+                          </div>
+                          <p className="muted">{skill.source?.repo} · {skill.source?.path}</p>
+                          <button type="button" className="ghost" onClick={() => installCatalogSkill(skill.name)}>Install this skill</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">No catalog skills loaded yet. Refresh to fetch the selected catalog.</p>
+                  )}
+                </div>
+                <form className="stack-form" onSubmit={installGithubSkill}>
+                  <div className="command-form-grid">
+                    <input placeholder="GitHub repo (owner/repo)" value={skillInstallForm.githubRepo} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, githubRepo: event.target.value }))} />
+                    <input placeholder="Repo path (e.g. skills/my-skill)" value={skillInstallForm.githubPath} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, githubPath: event.target.value }))} />
+                  </div>
+                  <input placeholder="Or GitHub URL (https://github.com/owner/repo/tree/ref/path)" value={skillInstallForm.githubUrl} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, githubUrl: event.target.value }))} />
+                  <div className="command-form-grid">
+                    <input placeholder="Optional installed skill name override" value={skillInstallForm.name} onChange={(event) => setSkillInstallForm((prev) => ({ ...prev, name: event.target.value }))} />
+                    <div className="helper-copy">
+                      <span className="field-label">GitHub import</span>
+                      <p className="muted">Use either `owner/repo` plus a repo path, or paste a full GitHub tree URL. Public repos default to direct download and fall back to sparse git checkout.</p>
+                    </div>
+                  </div>
+                  <button type="submit" className="primary">Install from GitHub</button>
+                </form>
               </div>
               <form className="stack-form" onSubmit={createCodexSkill}>
                 <div className="command-settings-grid adopt-settings-grid">
@@ -2694,54 +3092,148 @@ export default function App() {
               </div>
               ) : null}
               {environmentSection === 'rules' ? (
-              <div className="history-browser">
-                <div className="row between history-browser-head">
-                  <div>
-                    <p className="eyebrow">AGENTS.md Rules</p>
-                    <p className="muted">Edit global or repo-level AGENTS.md guidance on the execution host. This is the current rules system, not a separate standalone rule registry.</p>
+              <>
+                <div className="history-browser">
+                  <div className="row between history-browser-head">
+                    <div>
+                      <p className="eyebrow">AGENTS.md Rules</p>
+                      <p className="muted">Edit global or repo-level AGENTS.md guidance on the execution host. This remains the Codex-compatible markdown layer.</p>
+                    </div>
+                    <div className="row">
+                      <button type="button" className={`ghost ${activeRulesScope === 'global' ? 'active-filter' : ''}`} onClick={() => setActiveRulesScope('global')}>Global</button>
+                      <button type="button" className={`ghost ${activeRulesScope === 'workspace' ? 'active-filter' : ''}`} onClick={() => setActiveRulesScope('workspace')} disabled={!(detail?.repo_path || selectedSession?.repo_path)}>Workspace</button>
+                    </div>
                   </div>
-                  <div className="row">
-                    <button type="button" className={`ghost ${activeRulesScope === 'global' ? 'active-filter' : ''}`} onClick={() => setActiveRulesScope('global')}>Global</button>
-                    <button type="button" className={`ghost ${activeRulesScope === 'workspace' ? 'active-filter' : ''}`} onClick={() => setActiveRulesScope('workspace')} disabled={!(detail?.repo_path || selectedSession?.repo_path)}>Workspace</button>
-                  </div>
-                </div>
-                {codexRules[activeRulesScope] ? (
-                  <div className="stack-form environment-editor">
-                    <p className="muted">
-                      {codexRules[activeRulesScope].exists
-                        ? `Editing ${codexRules[activeRulesScope].path}`
-                        : `No rules file exists yet. Saving will create ${codexRules[activeRulesScope].path}`}
-                    </p>
-                    <textarea
-                      rows="10"
-                      value={codexRules[activeRulesScope].content}
-                      onChange={(event) => setCodexRules((current) => ({
-                        ...current,
-                        [activeRulesScope]: {
-                          ...current[activeRulesScope],
-                          content: event.target.value
-                        }
-                      }))}
-                    />
-                    <button type="button" className="primary" onClick={() => saveCodexRules(activeRulesScope)}>Save rules</button>
-                    {codexRules[activeRulesScope].backups?.length ? (
-                      <div className="history-list">
-                        {codexRules[activeRulesScope].backups.slice(0, 5).map((backup) => (
-                          <div key={backup.path} className="history-item">
-                            <div className="row between">
-                              <strong>{backup.name}</strong>
-                              <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                  {codexRules[activeRulesScope] ? (
+                    <div className="stack-form environment-editor">
+                      <p className="muted">
+                        {codexRules[activeRulesScope].exists
+                          ? `Editing ${codexRules[activeRulesScope].path}`
+                          : `No rules file exists yet. Saving will create ${codexRules[activeRulesScope].path}`}
+                      </p>
+                      <textarea
+                        rows="10"
+                        value={codexRules[activeRulesScope].content}
+                        onChange={(event) => setCodexRules((current) => ({
+                          ...current,
+                          [activeRulesScope]: {
+                            ...current[activeRulesScope],
+                            content: event.target.value
+                          }
+                        }))}
+                      />
+                      <button type="button" className="primary" onClick={() => saveCodexRules(activeRulesScope)}>Save rules</button>
+                      {codexRules[activeRulesScope].backups?.length ? (
+                        <div className="history-list">
+                          {codexRules[activeRulesScope].backups.slice(0, 5).map((backup) => (
+                            <div key={backup.path} className="history-item">
+                              <div className="row between">
+                                <strong>{backup.name}</strong>
+                                <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                              </div>
+                              <button type="button" className="ghost" onClick={() => restoreCodexRules(activeRulesScope, backup.path)}>Restore this backup</button>
                             </div>
-                            <button type="button" className="ghost" onClick={() => restoreCodexRules(activeRulesScope, backup.path)}>Restore this backup</button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="muted">Load a global or workspace rules file to edit it here.</p>
+                  )}
+                </div>
+
+                <div className="history-browser">
+                  <div className="row between history-browser-head">
+                    <div>
+                      <p className="eyebrow">Manager-Owned Rules</p>
+                      <p className="muted">Edit structured manager-native rules stored in `CODEXMGR_HOME`. This is distinct from `AGENTS.md` and is intended for policies the manager can validate and evolve.</p>
+                    </div>
+                    <span className={`badge ${managerRules?.valid === false ? 'badge-failed' : 'badge-running'}`}>
+                      {managerRules?.ruleCount || 0} structured rules
+                    </span>
                   </div>
-                ) : (
-                  <p className="muted">Load a global or workspace rules file to edit it here.</p>
-                )}
-              </div>
+                  {managerRules ? (
+                    <div className="environment-split">
+                      <div className="environment-column">
+                        <div className="history-item">
+                          <div className="row between">
+                            <strong>Registry status</strong>
+                            <span className={`badge ${managerRules.valid === false ? 'badge-failed' : 'badge-stopped'}`}>
+                              {managerRules.valid === false ? 'needs fix' : (managerRules.exists ? 'saved' : 'not created')}
+                            </span>
+                          </div>
+                          <p className="muted">{managerRules.exists ? `Editing ${managerRules.path}` : `No manager-owned rules file exists yet. Saving will create ${managerRules.path}`}</p>
+                          {managerRules.parseError ? (
+                            <p className="rule-error">{managerRules.parseError}</p>
+                          ) : (
+                            <p className="muted">Use this registry for structured defaults, autonomy limits, skill preferences, and other manager-native policy objects.</p>
+                          )}
+                        </div>
+                        <div className="history-item">
+                          <div className="row between">
+                            <strong>Parsed rule summary</strong>
+                            <span className="badge badge-stopped">{managerRules.ruleCount || 0} loaded</span>
+                          </div>
+                          {managerRules.rules?.length ? (
+                            <div className="rule-summary-list">
+                              {managerRules.rules.map((rule) => (
+                                <div key={rule.id} className="rule-summary-item">
+                                  <div className="row between">
+                                    <strong>{rule.label}</strong>
+                                    <span className={`badge ${rule.enabled ? 'badge-running' : 'badge-stopped'}`}>
+                                      {rule.enabled ? 'enabled' : 'disabled'}
+                                    </span>
+                                  </div>
+                                  <p className="rule-summary-meta">{rule.id} · {rule.category} · {rule.scopeSummary}</p>
+                                  {rule.notes ? <p className="muted">{rule.notes}</p> : null}
+                                  <p className="muted">Content keys: {rule.contentKeys?.length ? rule.contentKeys.join(', ') : 'none'}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="muted">No structured rules loaded yet. The editor accepts a JSON object with a top-level `rules` array.</p>
+                          )}
+                        </div>
+                        {managerRules.backups?.length ? (
+                          <div className="history-list">
+                            {managerRules.backups.slice(0, 5).map((backup) => (
+                              <div key={backup.path} className="history-item">
+                                <div className="row between">
+                                  <strong>{backup.name}</strong>
+                                  <span className="badge badge-stopped">{formatEventTime(backup.modifiedAt)}</span>
+                                </div>
+                                <button type="button" className="ghost" onClick={() => restoreManagerRules(backup.path)}>Restore this backup</button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="environment-column">
+                        <div className="stack-form environment-editor">
+                          <textarea
+                            rows="16"
+                            value={managerRules.content}
+                            placeholder={MANAGER_RULES_TEMPLATE}
+                            onChange={(event) => setManagerRules((current) => (current ? {
+                              ...current,
+                              content: event.target.value
+                            } : current))}
+                          />
+                          <div className="row gap-sm">
+                            <button type="button" className="ghost" onClick={() => setManagerRules((current) => (current ? {
+                              ...current,
+                              content: current.content?.trim() ? current.content : MANAGER_RULES_TEMPLATE
+                            } : current))}>Load example</button>
+                            <button type="button" className="primary" onClick={() => saveManagerRules()}>Save manager rules</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="muted">Load the manager-owned rules registry to edit it here.</p>
+                  )}
+                </div>
+              </>
               ) : null}
               {environmentSection === 'agents' ? (
               <div className="history-browser">

@@ -15,9 +15,18 @@ from app.models.session import ALLOWED_TRANSITIONS, SessionMode, SessionRecord, 
 from app.models.validation_history import ValidationHistoryRecord
 from app.runner.client import get_runner_client
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.manager_rules import effective_session_defaults
 from app.services.repo_policy_rules import match_repo_policy, serialize_repo_policy
 
 PROFILES = {"read-only", "safe-edit", "full-agent"}
+MANAGER_DEFAULT_FIELD_MAP = {
+    "profile": "profile",
+    "approvalPolicy": "approvalPolicy",
+    "createWorktreeForWrites": "createWorktreeForWrites",
+    "autoInitGit": "autoInitGit",
+    "requireChangelog": "requireChangelog",
+    "launch": "launch",
+}
 
 
 class SessionError(RuntimeError):
@@ -48,6 +57,25 @@ def _make_log_file(session_id: str) -> str:
     log_path = session_path / "output.log"
     log_path.touch(exist_ok=True)
     return str(log_path)
+
+
+def _select_manager_session_defaults(
+    *,
+    repo_path: str,
+    manager_defaults_fields: list[str] | None,
+) -> tuple[dict[str, object], list[dict]]:
+    requested_fields = [field for field in (manager_defaults_fields or []) if field in MANAGER_DEFAULT_FIELD_MAP]
+    if not requested_fields:
+        return {}, []
+    payload = effective_session_defaults(repo_path=repo_path)
+    defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+    selected = {
+        field: defaults[field]
+        for field in requested_fields
+        if field in defaults
+    }
+    applied_rules = payload.get("appliedRules") if isinstance(payload.get("appliedRules"), list) else []
+    return selected, applied_rules
 
 
 def _event(session_id: str, event_type: str, message: str, metadata: dict | None = None) -> None:
@@ -114,6 +142,7 @@ def create_managed_session(
     auto_init_git: bool,
     launch: bool,
     require_changelog: bool = False,
+    manager_defaults_fields: list[str] | None = None,
     runner: RunnerClient | None = None,
 ) -> SessionRecord:
     init_db()
@@ -131,6 +160,23 @@ def create_managed_session(
     session_id = _session_id()
     log_path = _make_log_file(session_id)
     tmux_session = _tmux_session_name(name, session_id)
+    allow_write = 0 if profile == "read-only" else 1
+    selected_manager_defaults, applied_manager_rules = _select_manager_session_defaults(
+        repo_path=repo,
+        manager_defaults_fields=manager_defaults_fields,
+    )
+    if isinstance(selected_manager_defaults.get("profile"), str) and selected_manager_defaults.get("profile") in PROFILES:
+        profile = str(selected_manager_defaults["profile"])
+    if isinstance(selected_manager_defaults.get("approvalPolicy"), str) and selected_manager_defaults.get("approvalPolicy"):
+        approval_policy = str(selected_manager_defaults["approvalPolicy"])
+    if isinstance(selected_manager_defaults.get("createWorktreeForWrites"), bool):
+        create_worktree_for_writes = bool(selected_manager_defaults["createWorktreeForWrites"])
+    if isinstance(selected_manager_defaults.get("autoInitGit"), bool):
+        auto_init_git = bool(selected_manager_defaults["autoInitGit"])
+    if isinstance(selected_manager_defaults.get("requireChangelog"), bool):
+        require_changelog = bool(selected_manager_defaults["requireChangelog"])
+    if isinstance(selected_manager_defaults.get("launch"), bool):
+        launch = bool(selected_manager_defaults["launch"])
     allow_write = 0 if profile == "read-only" else 1
     matched_policy = match_repo_policy(repo)
     if matched_policy and matched_policy.default_approval_policy:
@@ -296,7 +342,11 @@ def create_managed_session(
         session.id,
         "session_created",
         f"Session '{name}' created",
-        {"require_changelog": require_changelog},
+        {
+            "require_changelog": require_changelog,
+            "manager_defaults_fields": [field for field in (manager_defaults_fields or []) if field in selected_manager_defaults],
+            "manager_default_rule_ids": [str(rule.get("id")) for rule in applied_manager_rules if rule.get("id")],
+        },
     )
     _event(session.id, "worktree_created", "Worktree created", {"path": worktree_path, "branch": branch}) if worktree_path else None
 
