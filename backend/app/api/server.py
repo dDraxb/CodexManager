@@ -247,8 +247,7 @@ def _session_or_404(session_id: str):
 
 @app.get("/api/health")
 def health() -> dict:
-    touched = reconcile_once()
-    return {"ok": True, "reconciled": touched}
+    return {"ok": True}
 
 
 @app.get("/api/summary")

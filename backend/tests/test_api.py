@@ -1458,6 +1458,23 @@ def test_api_summary_triggers_reconciliation(configured_modules, monkeypatch):
     assert calls == ["reconciled"]
 
 
+def test_api_health_is_lightweight(configured_modules, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    def fail_reconcile():
+        raise AssertionError("health endpoint should not reconcile")
+
+    monkeypatch.setattr(server, "reconcile_once", fail_reconcile)
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
 def test_api_resume_points_uses_runner_history(configured_modules, git_repo, monkeypatch):
     from app.api import server
 
