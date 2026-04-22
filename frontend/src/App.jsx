@@ -710,12 +710,21 @@ function formatError(err) {
 }
 
 async function fetchJson(url, options) {
-  const res = await fetch(url, options)
+  const method = String(options?.method || 'GET').toUpperCase()
+  const requestOptions =
+    method === 'GET' || method === 'HEAD'
+      ? { ...options, cache: 'no-store' }
+      : options
+  const res = await fetch(url, requestOptions)
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}))
     throw new Error(payload.detail || `Request failed (${res.status})`)
   }
   return res.json()
+}
+
+function activeSessionCount(counts) {
+  return (counts.running || 0) + (counts.starting || 0) + (counts.waiting_input || 0)
 }
 
 function isArchivedSession(session) {
@@ -2448,7 +2457,7 @@ export default function App() {
           {snapshotSummary ? (
             <>
               <span>{snapshotSummary.total} total</span>
-              <span>{snapshotSummary.counts.running || 0} running</span>
+              <span>{activeSessionCount(snapshotSummary.counts)} active</span>
               <span>{snapshotSummary.counts.waiting_input || 0} waiting</span>
               <span>{snapshotSummary.needsAttention || 0} need attention</span>
             </>
@@ -3328,7 +3337,7 @@ export default function App() {
                             <label className="field">
                               <span className="field-label">Repo path</span>
                               <input
-                                placeholder="/Users/davidblom/Projects/Personal/codex-manager"
+                                placeholder="/path/to/repo"
                                 value={managerRulePreviewForm.repoPath}
                                 onChange={(event) => setManagerRulePreviewForm((current) => ({
                                   ...current,

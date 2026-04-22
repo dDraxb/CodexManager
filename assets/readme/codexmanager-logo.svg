@@ -1,0 +1,56 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">CodexManager logo</title>
+  <desc id="desc">Minimal premium CodexManager logo with a refined control-plane emblem and wordmark.</desc>
+
+  <rect width="1200" height="320" rx="36" fill="#07111A"/>
+  <rect x="24" y="24" width="1152" height="272" rx="28" fill="url(#panel)"/>
+  <rect x="24.75" y="24.75" width="1150.5" height="270.5" rx="27.25" stroke="url(#stroke)" stroke-width="1.5"/>
+
+  <g transform="translate(64 56)">
+    <rect x="0" y="0" width="208" height="208" rx="40" fill="url(#markBg)"/>
+    <rect x="1" y="1" width="206" height="206" rx="39" stroke="#1F3448" stroke-width="2"/>
+
+    <rect x="40" y="52" width="128" height="18" rx="9" fill="#122230"/>
+    <rect x="40" y="96" width="128" height="18" rx="9" fill="#122230"/>
+    <rect x="40" y="140" width="128" height="18" rx="9" fill="#122230"/>
+
+    <path d="M58 61H94C108 61 119 72 119 86V98C119 112 130 123 144 123H150" stroke="#79E3C4" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M58 105H86C100 105 111 116 111 130V142C111 156 122 167 136 167H150" stroke="#7CBFFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M150 61H136C122 61 111 72 111 86V130" stroke="#F1B566" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <circle cx="52" cy="61" r="10" fill="#79E3C4"/>
+    <circle cx="52" cy="105" r="10" fill="#7CBFFF"/>
+    <circle cx="156" cy="61" r="10" fill="#F1B566"/>
+    <circle cx="156" cy="123" r="10" fill="#79E3C4"/>
+    <circle cx="156" cy="167" r="10" fill="#7CBFFF"/>
+  </g>
+
+  <g transform="translate(320 96)">
+    <text x="0" y="74" fill="#F7FAFD" font-family="SF Pro Display, Inter, Segoe UI, Helvetica, Arial, sans-serif" font-size="84" font-weight="740" letter-spacing="-2.8">CodexManager</text>
+    <text x="2" y="126" fill="#94A9BC" font-family="SF Pro Text, Inter, Segoe UI, Helvetica, Arial, sans-serif" font-size="28" font-weight="540" letter-spacing="0.2">Local-first control plane for Codex sessions</text>
+
+    <g transform="translate(2 160)">
+      <rect x="0" y="0" width="288" height="2" rx="1" fill="url(#divider)"/>
+      <text x="0" y="34" fill="#C8D4E0" font-family="SF Pro Text, Inter, Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="580" letter-spacing="0.3">Manager • Runner • tmux • Codex • Repo</text>
+    </g>
+  </g>
+
+  <defs>
+    <linearGradient id="panel" x1="88" y1="16" x2="1106" y2="304" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1722"/>
+      <stop offset="1" stop-color="#08131D"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="24" y1="24" x2="1176" y2="296" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1A2B3A"/>
+      <stop offset="1" stop-color="#102232"/>
+    </linearGradient>
+    <linearGradient id="markBg" x1="16" y1="12" x2="190" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E1F2E"/>
+      <stop offset="1" stop-color="#0A1621"/>
+    </linearGradient>
+    <linearGradient id="divider" x1="0" y1="1" x2="288" y2="1" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#274058"/>
+      <stop offset="1" stop-color="#132636"/>
+    </linearGradient>
+  </defs>
+</svg>
