@@ -445,21 +445,21 @@ def test_reconcile_once_uses_runner_for_tmux_presence(configured_modules, git_re
     touched = reconcile_once(runner=runner)
     refreshed = get_session(session.id)
 
-    assert touched == 1
+    assert touched == 0
     assert refreshed is not None
-    assert refreshed.status == SessionStatus.LOST.value
+    assert refreshed.status == SessionStatus.CREATED.value
     assert ("session_exists", refreshed.tmux_session) in runner.calls
 
     events = list_events(session.id)
     initial_status_events = [event for event in events if event.type == "status_changed" and event.message == "created -> lost"]
-    assert len(initial_status_events) == 1
+    assert initial_status_events == []
 
     touched = reconcile_once(runner=runner)
     refreshed = get_session(session.id)
 
     assert touched == 0
     assert refreshed is not None
-    assert refreshed.status == SessionStatus.LOST.value
+    assert refreshed.status == SessionStatus.CREATED.value
 
     events = list_events(session.id)
     lost_to_lost_events = [event for event in events if event.type == "status_changed" and event.message == "lost -> lost"]
@@ -1126,6 +1126,55 @@ def test_reconcile_once_does_not_wake_idle_session_on_second_attach_poll(configu
     assert refreshed is not None
     assert refreshed.status == SessionStatus.IDLE.value
     assert refreshed.output_observed_at is None
+
+
+def test_reconcile_once_marks_attached_session_idle_from_stale_pane_activity(configured_modules, git_repo):
+    from app.db.database import get_conn
+    from app.models.session import SessionStatus
+    from app.monitoring.reconciler import _pane_fingerprint
+    from app.monitoring.reconciler import reconcile_once
+    from app.services.sessions import create_managed_session, get_session, update_status
+
+    class StableAttachedRunner(RecordingRunner):
+        def is_session_attached(self, session_name: str) -> bool:
+            self.calls.append(("is_session_attached", session_name))
+            return True
+
+        def capture_pane(self, session_name: str, tail: int = 200) -> list[str]:
+            self.calls.append(("capture_pane", session_name, tail))
+            return ["stale pane output", "gpt-5.4 default · ~/repo"]
+
+    runner = StableAttachedRunner(str(git_repo), session_exists=True)
+
+    session = create_managed_session(
+        name="attached-stale-pane-session",
+        repo_path=str(git_repo),
+        profile="read-only",
+        prompt=None,
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=True,
+        runner=runner,
+    )
+    update_status(session.id, SessionStatus.RUNNING, "Recent output detected")
+    stale_ts = (datetime.now(UTC) - timedelta(seconds=900)).replace(microsecond=0).isoformat()
+    pane_lines = ["stale pane output", "gpt-5.4 default · ~/repo"]
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET attachment_state = ?, last_attached_at = ?, output_fingerprint = ?, output_observed_at = ?, updated_at = ? WHERE id = ?",
+            ("attached", stale_ts, _pane_fingerprint(pane_lines), stale_ts, stale_ts, session.id),
+        )
+    old_log_ts = (datetime.now(UTC) - timedelta(seconds=30)).timestamp()
+    os.utime(session.log_path, (old_log_ts, old_log_ts))
+
+    touched = reconcile_once(runner=runner)
+    refreshed = get_session(session.id)
+
+    assert touched == 1
+    assert refreshed is not None
+    assert refreshed.status == SessionStatus.IDLE.value
+    assert refreshed.output_observed_at == stale_ts
 
 
 def test_remote_runner_round_trip_for_session_creation(configured_modules, monkeypatch, tmp_path):

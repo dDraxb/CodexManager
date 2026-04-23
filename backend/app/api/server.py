@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -49,6 +51,46 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_RECONCILE_MIN_INTERVAL_SECONDS = 2.0
+_reconcile_lock = threading.Lock()
+_last_reconcile_monotonic = 0.0
+_reconcile_in_progress = False
+
+
+def _run_reconcile(*, suppress_errors: bool = False) -> None:
+    global _last_reconcile_monotonic, _reconcile_in_progress
+
+    try:
+        try:
+            reconcile_once()
+        except Exception:
+            if not suppress_errors:
+                raise
+        else:
+            _last_reconcile_monotonic = time.monotonic()
+    finally:
+        _reconcile_in_progress = False
+
+
+def _reconcile_if_stale(force: bool = False, background: bool = False) -> None:
+    global _last_reconcile_monotonic, _reconcile_in_progress
+
+    now = time.monotonic()
+    if not force and now - _last_reconcile_monotonic < _RECONCILE_MIN_INTERVAL_SECONDS:
+        return
+
+    with _reconcile_lock:
+        now = time.monotonic()
+        if not force and now - _last_reconcile_monotonic < _RECONCILE_MIN_INTERVAL_SECONDS:
+            return
+        if _reconcile_in_progress:
+            return
+        _reconcile_in_progress = True
+        if background:
+            threading.Thread(target=lambda: _run_reconcile(suppress_errors=True), daemon=True).start()
+            return
+        _run_reconcile()
 
 
 class StartRequest(BaseModel):
@@ -253,7 +295,7 @@ def health() -> dict:
 
 @app.get("/api/summary")
 def summary() -> dict:
-    reconcile_once()
+    _reconcile_if_stale(force=True)
     rows = list_sessions()
     counts: dict[str, int] = {}
     for row in rows:
@@ -268,11 +310,13 @@ def summary() -> dict:
 
 @app.get("/api/sessions")
 def sessions() -> list[dict]:
+    _reconcile_if_stale(background=True)
     return [asdict(s) for s in list_sessions()]
 
 
 @app.get("/api/sessions/{session_id}")
 def session_detail(session_id: str) -> dict:
+    _reconcile_if_stale(background=True)
     return asdict(_session_or_404(session_id))
 
 

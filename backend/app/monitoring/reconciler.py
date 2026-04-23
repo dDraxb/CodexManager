@@ -1279,6 +1279,10 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
 
         tmux_ok = bool(session.tmux_session and client.session_exists(session.tmux_session))
         if not tmux_ok and session.mode == "managed":
+            if session.started_at is None and (session.attachment_state or "detached") == "detached":
+                _refresh_health(session, None, settings.monitor_idle_seconds)
+                _refresh_priority(session, None, settings.monitor_idle_seconds)
+                continue
             if (session.attachment_state or "detached") != "detached":
                 timestamp = datetime.now(UTC).replace(microsecond=0).isoformat()
                 _record_attachment_state(session.id, "detached", timestamp)
@@ -1319,7 +1323,8 @@ def reconcile_once(runner: RunnerClient | None = None) -> int:
                     else:
                         session.last_detached_at = timestamp
 
-        idle_age = _file_age_seconds(session.log_path)
+        use_log_idle_age = not (tmux_ok and session.tmux_session and session.attachment_state == "attached")
+        idle_age = _file_age_seconds(session.log_path) if use_log_idle_age else None
         lines: list[str] = []
         if tmux_ok and session.tmux_session:
             try:

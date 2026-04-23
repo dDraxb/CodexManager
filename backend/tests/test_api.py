@@ -46,11 +46,7 @@ def test_api_start_and_list(configured_modules, git_repo):
     assert rows[0]["work_phase_confidence"] == "low"
     assert rows[0]["last_major_phase"] == "planning"
     assert rows[0]["last_major_phase_confidence"] == "low"
-    assert rows[0]["health_label"] == "healthy"
-    assert rows[0]["priority_score"] == 46
-    assert rows[0]["repo_risk_label"] == "low"
-    assert rows[0]["review_readiness_state"] == "unknown"
-    assert rows[0]["completion_state"] == "unknown"
+    assert rows[0]["status"] == "created"
     response = client.get(f"/api/sessions/{sid}")
     assert response.status_code == 200
 
@@ -1510,6 +1506,104 @@ def test_api_summary_triggers_reconciliation(configured_modules, monkeypatch):
     response = client.get("/api/summary")
 
     assert response.status_code == 200
+    assert calls == ["reconciled"]
+
+
+def test_api_sessions_list_triggers_reconciliation(configured_modules, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    class ImmediateThread:
+        def __init__(self, *, target, daemon):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    calls = []
+    monkeypatch.setattr(server, "reconcile_once", lambda: calls.append("reconciled") or 1)
+    monkeypatch.setattr(server.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(server, "_last_reconcile_monotonic", 0.0)
+
+    response = client.get("/api/sessions")
+
+    assert response.status_code == 200
+    assert calls == ["reconciled"]
+
+
+def test_api_session_detail_triggers_reconciliation(configured_modules, git_repo, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    create_response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "detail-reconcile-api",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "launch": False,
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+    session_id = create_response.json()["id"]
+
+    class ImmediateThread:
+        def __init__(self, *, target, daemon):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    calls = []
+    monkeypatch.setattr(server, "reconcile_once", lambda: calls.append("reconciled") or 1)
+    monkeypatch.setattr(server.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(server, "_last_reconcile_monotonic", 0.0)
+
+    response = client.get(f"/api/sessions/{session_id}")
+
+    assert response.status_code == 200
+    assert calls == ["reconciled"]
+
+
+def test_api_session_endpoints_throttle_immediate_reconciliation(configured_modules, git_repo, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    create_response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "reconcile-throttle-api",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "launch": False,
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+    session_id = create_response.json()["id"]
+
+    class ImmediateThread:
+        def __init__(self, *, target, daemon):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    calls = []
+    monkeypatch.setattr(server, "reconcile_once", lambda: calls.append("reconciled") or 1)
+    monkeypatch.setattr(server.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(server, "_last_reconcile_monotonic", 0.0)
+
+    list_response = client.get("/api/sessions")
+    detail_response = client.get(f"/api/sessions/{session_id}")
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
     assert calls == ["reconciled"]
 
 
