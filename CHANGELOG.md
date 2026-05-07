@@ -3,6 +3,9 @@
 ## 2026-05-08
 
 ### Added
+- Added automation lineage fields on sessions so spawned follow-ups retain their parent session and automation action.
+- Added duplicate suppression so active follow-up sessions prevent the queue from repeatedly spawning the same action for the same parent.
+- Added dashboard visibility for automation parent/action metadata on spawned sessions.
 - Added a global automation queue that ranks recommendations across sessions and exposes executable follow-up candidates.
 - Added an execute-next automation API for starting the highest-priority safe follow-up session.
 - Added dashboard automation queue controls in the History tab, including queue refresh, inspect, per-item execution, and execute-top.

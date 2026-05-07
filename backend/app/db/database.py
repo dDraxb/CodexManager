@@ -72,6 +72,8 @@ def init_db(force: bool = False) -> None:
               tmux_session TEXT,
               pid INTEGER,
               prompt TEXT,
+              parent_session_id TEXT,
+              automation_action TEXT,
               created_at TEXT NOT NULL,
               started_at TEXT,
               finished_at TEXT,
@@ -322,6 +324,8 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
         ("last_detached_at", "ALTER TABLE sessions ADD COLUMN last_detached_at TEXT"),
         ("output_fingerprint", "ALTER TABLE sessions ADD COLUMN output_fingerprint TEXT"),
         ("output_observed_at", "ALTER TABLE sessions ADD COLUMN output_observed_at TEXT"),
+        ("parent_session_id", "ALTER TABLE sessions ADD COLUMN parent_session_id TEXT"),
+        ("automation_action", "ALTER TABLE sessions ADD COLUMN automation_action TEXT"),
         ("updated_at", "ALTER TABLE sessions ADD COLUMN updated_at TEXT"),
     ]
     for column, statement in alter_statements:

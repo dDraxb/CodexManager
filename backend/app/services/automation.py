@@ -17,6 +17,7 @@ SPAWN_ACTIONS = {
     "resume_or_relaunch",
 }
 EXECUTABLE_ACTIONS = SPAWN_ACTIONS | {"archive_with_summary"}
+ACTIVE_CHILD_STATUSES = {"created", "starting", "running", "waiting_input", "idle"}
 
 
 def _automation_name(parent: SessionRecord, action: str) -> str:
@@ -68,6 +69,16 @@ def execute_automation_action(
         raise SessionError(f"session '{session_id}' not found")
     if action not in SPAWN_ACTIONS and action != "archive_with_summary":
         raise SessionError(f"automation action '{action}' is not executable")
+    existing_child = active_automation_child(parent.id, action)
+    if existing_child is not None and action in SPAWN_ACTIONS:
+        return {
+            "action": action,
+            "parentSession": asdict(parent),
+            "handoff": None,
+            "spawnedSession": asdict(existing_child),
+            "launch": False,
+            "duplicateSuppressed": True,
+        }
 
     matching_recommendation = next(
         (item for item in automation_recommendations_for_session(parent) if item.get("action") == action),
@@ -100,6 +111,8 @@ def execute_automation_action(
         create_worktree_for_writes=action == "spawn_isolated_followup",
         auto_init_git=False,
         require_changelog=bool(parent.require_changelog),
+        parent_session_id=parent.id,
+        automation_action=action,
         launch=launch,
         defer_launch=True,
     )
@@ -110,7 +123,19 @@ def execute_automation_action(
         "spawnedSession": asdict(spawned),
         "launch": launch,
         "prompt": prompt,
+        "duplicateSuppressed": False,
     }
+
+
+def active_automation_child(parent_session_id: str, action: str) -> SessionRecord | None:
+    for session in list_sessions():
+        if (
+            session.parent_session_id == parent_session_id
+            and session.automation_action == action
+            and session.status in ACTIVE_CHILD_STATUSES
+        ):
+            return session
+    return None
 
 
 def automation_queue(
@@ -129,7 +154,10 @@ def automation_queue(
             priority = int(recommendation.get("priority") or 0)
             action = str(recommendation.get("action") or "")
             executable = action in EXECUTABLE_ACTIONS
+            duplicate_child = active_automation_child(session.id, action) if executable else None
             if priority < min_priority:
+                continue
+            if duplicate_child is not None:
                 continue
             if executable_only and not executable:
                 continue

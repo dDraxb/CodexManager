@@ -98,6 +98,8 @@ class SessionRecord:
     tmux_session: str | None
     pid: int | None
     prompt: str | None
+    parent_session_id: str | None
+    automation_action: str | None
     created_at: str
     started_at: str | None
     finished_at: str | None

@@ -181,8 +181,23 @@ def test_api_executes_automation_action_as_followup_session(configured_modules, 
     assert payload["spawnedSession"]["id"] != parent_id
     assert payload["spawnedSession"]["status"] == "created"
     assert payload["spawnedSession"]["profile"] == "safe-edit"
+    assert payload["spawnedSession"]["parent_session_id"] == parent_id
+    assert payload["spawnedSession"]["automation_action"] == "spawn_validation"
     assert "Parent resume brief:" in payload["prompt"]
     assert "Run the repo's relevant validation checks" in payload["prompt"]
+
+    duplicate = client.post(
+        f"/api/sessions/{parent_id}/automation/execute",
+        json={
+            "action": "spawn_validation",
+            "label": "Run validation follow-up",
+            "reason": "code changed since green validation",
+            "launch": False,
+        },
+    )
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["duplicateSuppressed"] is True
+    assert duplicate.json()["spawnedSession"]["id"] == payload["spawnedSession"]["id"]
 
     response = client.get("/api/history/search", params={"query": parent_id})
     assert response.status_code == 200, response.text
@@ -242,6 +257,10 @@ def test_api_global_automation_queue_executes_top_item(configured_modules, git_r
     assert payload["selected"]["session"]["id"] == first_id
     assert payload["result"]["spawnedSession"]["name"].startswith("api-queue-validation-validation-")
     assert payload["result"]["spawnedSession"]["status"] == "created"
+
+    response = client.get("/api/automation/queue", params={"min_priority": 80, "executable_only": "true"})
+    assert response.status_code == 200, response.text
+    assert response.json()["count"] == 0
 
 
 def test_api_start_auto_init_git(configured_modules, tmp_path):

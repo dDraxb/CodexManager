@@ -4480,6 +4480,18 @@ export default function App() {
                   <span className="overview-label">Profile</span>
                   <span className="overview-value">{selectedSession.profile}</span>
                 </div>
+                {(detail?.parent_session_id || selectedSession.parent_session_id) ? (
+                  <div className="overview-item">
+                    <span className="overview-label">Automation parent</span>
+                    <span className="overview-value">{detail?.parent_session_id || selectedSession.parent_session_id}</span>
+                  </div>
+                ) : null}
+                {(detail?.automation_action || selectedSession.automation_action) ? (
+                  <div className="overview-item">
+                    <span className="overview-label">Automation action</span>
+                    <span className="overview-value">{detail?.automation_action || selectedSession.automation_action}</span>
+                  </div>
+                ) : null}
                 <div className="overview-item">
                   <span className="overview-label">Protected branch</span>
                   <span className="overview-value">{protectedBranchLabel(detail?.protected_branch_state || selectedSession.protected_branch_state)}</span>
