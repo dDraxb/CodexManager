@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from app.models.session import SessionRecord
 from app.services.handoff import automation_recommendations_for_session, create_handoff
-from app.services.sessions import SessionError, create_managed_session, get_session
+from app.services.sessions import SessionError, create_managed_session, get_session, list_sessions
 
 
 SPAWN_ACTIONS = {
@@ -16,6 +16,7 @@ SPAWN_ACTIONS = {
     "spawn_isolated_followup",
     "resume_or_relaunch",
 }
+EXECUTABLE_ACTIONS = SPAWN_ACTIONS | {"archive_with_summary"}
 
 
 def _automation_name(parent: SessionRecord, action: str) -> str:
@@ -109,4 +110,82 @@ def execute_automation_action(
         "spawnedSession": asdict(spawned),
         "launch": launch,
         "prompt": prompt,
+    }
+
+
+def automation_queue(
+    *,
+    min_priority: int = 0,
+    executable_only: bool = False,
+    include_archived: bool = True,
+    limit: int = 50,
+) -> dict:
+    items: list[dict] = []
+    archived_statuses = {"finished", "failed", "stopped", "lost"}
+    for session in list_sessions():
+        if not include_archived and session.status in archived_statuses:
+            continue
+        for recommendation in automation_recommendations_for_session(session):
+            priority = int(recommendation.get("priority") or 0)
+            action = str(recommendation.get("action") or "")
+            executable = action in EXECUTABLE_ACTIONS
+            if priority < min_priority:
+                continue
+            if executable_only and not executable:
+                continue
+            items.append(
+                {
+                    "session": asdict(session),
+                    "recommendation": recommendation,
+                    "priority": priority,
+                    "executable": executable,
+                }
+            )
+    items.sort(
+        key=lambda item: (
+            int(item["priority"]),
+            str(item["session"].get("updated_at") or ""),
+        ),
+        reverse=True,
+    )
+    return {
+        "items": items[:limit],
+        "count": min(len(items), limit),
+        "totalCandidates": len(items),
+        "filters": {
+            "minPriority": min_priority,
+            "executableOnly": executable_only,
+            "includeArchived": include_archived,
+            "limit": limit,
+        },
+    }
+
+
+def execute_next_automation(
+    *,
+    min_priority: int = 80,
+    launch: bool = True,
+    include_archived: bool = True,
+) -> dict:
+    queue = automation_queue(
+        min_priority=min_priority,
+        executable_only=True,
+        include_archived=include_archived,
+        limit=1,
+    )
+    if not queue["items"]:
+        raise SessionError("no executable automation recommendations match the requested priority")
+    item = queue["items"][0]
+    recommendation = item["recommendation"]
+    session = item["session"]
+    result = execute_automation_action(
+        str(session["id"]),
+        action=str(recommendation["action"]),
+        label=str(recommendation.get("label") or ""),
+        reason=str(recommendation.get("reason") or ""),
+        launch=launch,
+    )
+    return {
+        "selected": item,
+        "result": result,
     }

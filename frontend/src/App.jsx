@@ -879,6 +879,7 @@ export default function App() {
   const [historyResults, setHistoryResults] = useState({ sessions: [], count: 0, filters: EMPTY_HISTORY_FILTERS })
   const [historyAnalytics, setHistoryAnalytics] = useState(null)
   const [historyCompare, setHistoryCompare] = useState(null)
+  const [automationQueue, setAutomationQueue] = useState({ items: [], count: 0, totalCandidates: 0 })
   const [resumePoints, setResumePoints] = useState([])
   const [showResumeChooser, setShowResumeChooser] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -1511,6 +1512,62 @@ export default function App() {
     )
     if (!payload) return
     setHistoryAnalytics(payload)
+  }
+
+  async function loadAutomationQueue() {
+    const payload = await runRequest(
+      () => fetchJson('/api/automation/queue?min_priority=60&executable_only=false&include_archived=true&limit=12'),
+      null
+    )
+    if (!payload) return
+    setAutomationQueue(payload)
+  }
+
+  async function executeNextAutomation() {
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/automation/execute-next', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            minPriority: 80,
+            launch: true,
+            includeArchived: true
+          })
+        }),
+      (result) => `Started top follow-up ${result.result.spawnedSession?.name || result.selected.recommendation.label}`
+    )
+    if (!payload) return
+    await loadAutomationQueue()
+    await refreshAfterMutation(payload.result.spawnedSession?.id || payload.selected.session.id)
+  }
+
+  async function executeAutomationQueueItem(item) {
+    const session = item?.session
+    const recommendation = item?.recommendation
+    if (!session || !recommendation) return
+    if (!item.executable) {
+      setSelectedId(session.id)
+      notify('success', `Selected ${session.name} for manual action`)
+      return
+    }
+    const payload = await runRequest(
+      () =>
+        fetchJson(`/api/sessions/${session.id}/automation/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: recommendation.action,
+            label: recommendation.label,
+            reason: recommendation.reason,
+            launch: true
+          })
+        }),
+      (result) => `Started follow-up ${result.spawnedSession?.name || recommendation.label}`
+    )
+    if (!payload) return
+    await loadAutomationQueue()
+    await refreshAfterMutation(payload.spawnedSession?.id || session.id)
   }
 
   async function loadHistoryCompare(repoPath = historyFilters.repoPath || activeRepoPath) {
@@ -2786,6 +2843,7 @@ export default function App() {
     if (commandTab !== 'history' || !showCommandPanel) return
     void loadHistoryAnalytics()
     void loadHistorySearch({ repoPath: historyFilters.repoPath || activeRepoPath })
+    void loadAutomationQueue()
   }, [commandTab, showCommandPanel])
 
   useEffect(() => {
@@ -3248,6 +3306,39 @@ export default function App() {
                 <div className="history-item">
                   <strong>Average duration</strong>
                   <p className="muted">{formatDuration(historyAnalytics?.averageDurationSeconds || 0) || '0s'}</p>
+                </div>
+              </div>
+
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Automation Queue</p>
+                    <p className="muted">Ranked recommendations across sessions. Executable items can start follow-up sessions directly.</p>
+                  </div>
+                  <div className="row gap-sm">
+                    <button type="button" className="ghost" onClick={() => loadAutomationQueue()}>Refresh queue</button>
+                    <button type="button" className="primary" onClick={() => executeNextAutomation()} disabled={!automationQueue.items?.some((item) => item.executable && item.priority >= 80)}>
+                      Execute top
+                    </button>
+                  </div>
+                </div>
+                <div className="history-list">
+                  {(automationQueue.items || []).map((item) => (
+                    <div key={`${item.session.id}-${item.recommendation.action}-${item.recommendation.label}`} className="history-item">
+                      <div className="row between">
+                        <strong>{item.recommendation.label}</strong>
+                        <span className={`badge ${item.executable ? 'badge-running' : 'badge-stopped'}`}>
+                          {item.priority}
+                        </span>
+                      </div>
+                      <p className="muted">{item.session.name} · {item.session.status} · {item.session.target_label || item.session.repo_path}</p>
+                      <p className="muted">{item.recommendation.reason}</p>
+                      <button type="button" className="ghost" onClick={() => executeAutomationQueueItem(item)}>
+                        {item.executable ? 'Start follow-up' : 'Inspect session'}
+                      </button>
+                    </div>
+                  ))}
+                  {!automationQueue.items?.length ? <p className="muted">No automation candidates above the queue threshold.</p> : null}
                 </div>
               </div>
 

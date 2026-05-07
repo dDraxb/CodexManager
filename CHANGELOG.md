@@ -3,6 +3,9 @@
 ## 2026-05-08
 
 ### Added
+- Added a global automation queue that ranks recommendations across sessions and exposes executable follow-up candidates.
+- Added an execute-next automation API for starting the highest-priority safe follow-up session.
+- Added dashboard automation queue controls in the History tab, including queue refresh, inspect, per-item execution, and execute-top.
 - Added executable automation actions that convert recommendations into managed follow-up sessions for validation, review, investigation, recovery, and isolated continuation.
 - Added an automation execution API for selected sessions, including generated handoff context and purpose-built follow-up prompts.
 - Added dashboard support for starting follow-up sessions directly from automation recommendations.

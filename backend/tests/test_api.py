@@ -190,6 +190,60 @@ def test_api_executes_automation_action_as_followup_session(configured_modules, 
     assert any(name.startswith("api-parent-validation-validation-") for name in names)
 
 
+def test_api_global_automation_queue_executes_top_item(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    first = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "api-queue-validation",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "prompt": "Needs validation",
+            "launch": False,
+        },
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "api-queue-monitor",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "prompt": "Monitor only",
+            "launch": False,
+        },
+    )
+    assert second.status_code == 200, second.text
+    first_id = first.json()["id"]
+
+    with configured_modules["database"].get_conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET changed_since_green_validation = 1, changed_since_green_reason = ? WHERE id = ?",
+            ("code changed since green validation", first_id),
+        )
+
+    response = client.get("/api/automation/queue", params={"min_priority": 80, "executable_only": "true"})
+    assert response.status_code == 200, response.text
+    queue = response.json()
+    assert queue["count"] == 1
+    assert queue["items"][0]["session"]["id"] == first_id
+    assert queue["items"][0]["recommendation"]["action"] == "spawn_validation"
+
+    response = client.post(
+        "/api/automation/execute-next",
+        json={"minPriority": 80, "launch": False, "includeArchived": True},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["selected"]["session"]["id"] == first_id
+    assert payload["result"]["spawnedSession"]["name"].startswith("api-queue-validation-validation-")
+    assert payload["result"]["spawnedSession"]["status"] == "created"
+
+
 def test_api_start_auto_init_git(configured_modules, tmp_path):
     from app.api import server
 

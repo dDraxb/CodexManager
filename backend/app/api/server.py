@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
-from app.services.automation import execute_automation_action
+from app.services.automation import automation_queue, execute_automation_action, execute_next_automation
 from app.services.codex_config_presets import (
     apply_codex_config_preset as apply_codex_config_preset_payload,
     delete_codex_config_preset,
@@ -328,6 +328,12 @@ class AutomationExecuteRequest(BaseModel):
     launch: bool = True
 
 
+class AutomationExecuteNextRequest(BaseModel):
+    min_priority: int = Field(default=80, alias="minPriority")
+    launch: bool = True
+    include_archived: bool = Field(default=True, alias="includeArchived")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -456,6 +462,33 @@ def history_analytics() -> dict:
 @app.get("/api/history/compare")
 def history_compare(repo_path: str) -> dict:
     return compare_repo_sessions(repo_path)
+
+
+@app.get("/api/automation/queue")
+def global_automation_queue(
+    min_priority: int = 0,
+    executable_only: bool = False,
+    include_archived: bool = True,
+    limit: int = 50,
+) -> dict:
+    return automation_queue(
+        min_priority=min_priority,
+        executable_only=executable_only,
+        include_archived=include_archived,
+        limit=limit,
+    )
+
+
+@app.post("/api/automation/execute-next")
+def global_automation_execute_next(request: AutomationExecuteNextRequest) -> dict:
+    try:
+        return execute_next_automation(
+            min_priority=request.min_priority,
+            launch=request.launch,
+            include_archived=request.include_archived,
+        )
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/codex/history")
