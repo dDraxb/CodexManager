@@ -1442,7 +1442,45 @@ export default function App() {
       return
     }
     if (recommendation.action === 'archive_with_summary') {
-      await generateHandoff('archive', recommendation.reason || '')
+      const payload = await runRequest(
+        () =>
+          fetchJson(`/api/sessions/${selectedSession.id}/automation/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: recommendation.action,
+              label: recommendation.label,
+              reason: recommendation.reason,
+              launch: false
+            })
+          }),
+        () => `Archived ${selectedSession.name} with a generated handoff`
+      )
+      if (!payload) return
+      await loadDetail(selectedSession.id)
+      return
+    }
+    if (
+      recommendation.action.startsWith('spawn_') ||
+      recommendation.action === 'run_validation_recipe' ||
+      recommendation.action === 'resume_or_relaunch'
+    ) {
+      const payload = await runRequest(
+        () =>
+          fetchJson(`/api/sessions/${selectedSession.id}/automation/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: recommendation.action,
+              label: recommendation.label,
+              reason: recommendation.reason,
+              launch: true
+            })
+          }),
+        (result) => `Started follow-up ${result.spawnedSession?.name || recommendation.label}`
+      )
+      if (!payload) return
+      await refreshAfterMutation(payload.spawnedSession?.id || selectedSession.id)
       return
     }
     await generateHandoff('generated', `${recommendation.label}: ${recommendation.reason}`)
@@ -4513,7 +4551,9 @@ export default function App() {
                     </div>
                     <p className="muted">{recommendation.reason}</p>
                     <button type="button" className="ghost" onClick={() => handleAutomationAction(recommendation)}>
-                      {recommendation.action.startsWith('spawn_') ? 'Prepare follow-up' : 'Run action'}
+                      {recommendation.action.startsWith('spawn_') || recommendation.action === 'run_validation_recipe' || recommendation.action === 'resume_or_relaunch'
+                        ? 'Start follow-up'
+                        : 'Run action'}
                     </button>
                   </div>
                 ))}

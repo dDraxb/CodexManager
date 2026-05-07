@@ -3,6 +3,9 @@
 ## 2026-05-08
 
 ### Added
+- Added executable automation actions that convert recommendations into managed follow-up sessions for validation, review, investigation, recovery, and isolated continuation.
+- Added an automation execution API for selected sessions, including generated handoff context and purpose-built follow-up prompts.
+- Added dashboard support for starting follow-up sessions directly from automation recommendations.
 - Added structured session handoffs with resume briefs, unresolved questions, validation state, files touched, next actions, notes, final disposition, and persisted automation recommendations.
 - Added automation snapshots that turn session state into deterministic follow-up recommendations such as validation, review, unblock, recovery, archive, and overlap-comparison actions.
 - Added searchable manager history with filters for repo, status, profile, validation state, and archived state, including latest handoff content in search results.

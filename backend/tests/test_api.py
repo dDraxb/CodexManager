@@ -135,6 +135,61 @@ def test_api_handoffs_automation_and_history(configured_modules, git_repo):
     assert response.json()["sessions"][0]["id"] == session_id
 
 
+def test_api_executes_automation_action_as_followup_session(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "api-parent-validation",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "prompt": "Implement a change that needs validation",
+            "launch": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    parent_id = response.json()["id"]
+
+    with configured_modules["database"].get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET changed_since_green_validation = 1,
+                changed_since_green_reason = ?
+            WHERE id = ?
+            """,
+            ("code changed since green validation", parent_id),
+        )
+
+    response = client.post(
+        f"/api/sessions/{parent_id}/automation/execute",
+        json={
+            "action": "spawn_validation",
+            "label": "Run validation follow-up",
+            "reason": "code changed since green validation",
+            "launch": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["action"] == "spawn_validation"
+    assert payload["handoff"]["session_id"] == parent_id
+    assert payload["spawnedSession"]["id"] != parent_id
+    assert payload["spawnedSession"]["status"] == "created"
+    assert payload["spawnedSession"]["profile"] == "safe-edit"
+    assert "Parent resume brief:" in payload["prompt"]
+    assert "Run the repo's relevant validation checks" in payload["prompt"]
+
+    response = client.get("/api/history/search", params={"query": parent_id})
+    assert response.status_code == 200, response.text
+    names = {row["name"] for row in response.json()["sessions"]}
+    assert any(name.startswith("api-parent-validation-validation-") for name in names)
+
+
 def test_api_start_auto_init_git(configured_modules, tmp_path):
     from app.api import server
 

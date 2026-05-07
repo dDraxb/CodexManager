@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
+from app.services.automation import execute_automation_action
 from app.services.codex_config_presets import (
     apply_codex_config_preset as apply_codex_config_preset_payload,
     delete_codex_config_preset,
@@ -320,6 +321,13 @@ class HandoffCreateRequest(BaseModel):
     human_notes: str = Field(default="", alias="humanNotes")
 
 
+class AutomationExecuteRequest(BaseModel):
+    action: str
+    label: str = ""
+    reason: str = ""
+    launch: bool = True
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -400,6 +408,21 @@ def session_automation(session_id: str) -> dict:
     _session_or_404(session_id)
     try:
         return automation_snapshot(session_id)
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/sessions/{session_id}/automation/execute")
+def session_execute_automation(session_id: str, request: AutomationExecuteRequest) -> dict:
+    _session_or_404(session_id)
+    try:
+        return execute_automation_action(
+            session_id,
+            action=request.action,
+            label=request.label,
+            reason=request.reason,
+            launch=request.launch,
+        )
     except SessionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
