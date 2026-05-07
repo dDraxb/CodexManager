@@ -3,6 +3,9 @@
 ## 2026-05-08
 
 ### Added
+- Added a bounded automation sweep API that executes multiple high-priority follow-up actions while respecting queue duplicate suppression.
+- Added dashboard support for running a capped automation sweep from the History automation queue.
+- Added archive-handoff suppression so archive recommendations do not keep producing duplicate summaries after archive/stop handoffs exist.
 - Added automation lineage fields on sessions so spawned follow-ups retain their parent session and automation action.
 - Added duplicate suppression so active follow-up sessions prevent the queue from repeatedly spawning the same action for the same parent.
 - Added dashboard visibility for automation parent/action metadata on spawned sessions.

@@ -4,7 +4,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 
 from app.models.session import SessionRecord
-from app.services.handoff import automation_recommendations_for_session, create_handoff
+from app.services.handoff import automation_recommendations_for_session, create_handoff, latest_handoff
 from app.services.sessions import SessionError, create_managed_session, get_session, list_sessions
 
 
@@ -154,6 +154,10 @@ def automation_queue(
             priority = int(recommendation.get("priority") or 0)
             action = str(recommendation.get("action") or "")
             executable = action in EXECUTABLE_ACTIONS
+            if action == "archive_with_summary":
+                handoff = latest_handoff(session.id)
+                if handoff and handoff.kind in {"archive", "stop"}:
+                    continue
             duplicate_child = active_automation_child(session.id, action) if executable else None
             if priority < min_priority:
                 continue
@@ -216,4 +220,50 @@ def execute_next_automation(
     return {
         "selected": item,
         "result": result,
+    }
+
+
+def sweep_automation(
+    *,
+    min_priority: int = 80,
+    max_actions: int = 3,
+    launch: bool = True,
+    include_archived: bool = True,
+) -> dict:
+    capped_actions = max(1, min(int(max_actions), 10))
+    results: list[dict] = []
+    for _index in range(capped_actions):
+        queue = automation_queue(
+            min_priority=min_priority,
+            executable_only=True,
+            include_archived=include_archived,
+            limit=1,
+        )
+        if not queue["items"]:
+            break
+        item = queue["items"][0]
+        recommendation = item["recommendation"]
+        session = item["session"]
+        result = execute_automation_action(
+            str(session["id"]),
+            action=str(recommendation["action"]),
+            label=str(recommendation.get("label") or ""),
+            reason=str(recommendation.get("reason") or ""),
+            launch=launch,
+        )
+        results.append({"selected": item, "result": result})
+
+    remaining = automation_queue(
+        min_priority=min_priority,
+        executable_only=True,
+        include_archived=include_archived,
+        limit=50,
+    )
+    return {
+        "executed": len(results),
+        "results": results,
+        "remainingCandidates": remaining["totalCandidates"],
+        "minPriority": min_priority,
+        "maxActions": capped_actions,
+        "launch": launch,
     }

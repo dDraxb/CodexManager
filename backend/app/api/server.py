@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
-from app.services.automation import automation_queue, execute_automation_action, execute_next_automation
+from app.services.automation import automation_queue, execute_automation_action, execute_next_automation, sweep_automation
 from app.services.codex_config_presets import (
     apply_codex_config_preset as apply_codex_config_preset_payload,
     delete_codex_config_preset,
@@ -334,6 +334,13 @@ class AutomationExecuteNextRequest(BaseModel):
     include_archived: bool = Field(default=True, alias="includeArchived")
 
 
+class AutomationSweepRequest(BaseModel):
+    min_priority: int = Field(default=80, alias="minPriority")
+    max_actions: int = Field(default=3, alias="maxActions")
+    launch: bool = True
+    include_archived: bool = Field(default=True, alias="includeArchived")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -484,6 +491,19 @@ def global_automation_execute_next(request: AutomationExecuteNextRequest) -> dic
     try:
         return execute_next_automation(
             min_priority=request.min_priority,
+            launch=request.launch,
+            include_archived=request.include_archived,
+        )
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/automation/sweep")
+def global_automation_sweep(request: AutomationSweepRequest) -> dict:
+    try:
+        return sweep_automation(
+            min_priority=request.min_priority,
+            max_actions=request.max_actions,
             launch=request.launch,
             include_archived=request.include_archived,
         )

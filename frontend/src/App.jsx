@@ -1542,6 +1542,27 @@ export default function App() {
     await refreshAfterMutation(payload.result.spawnedSession?.id || payload.selected.session.id)
   }
 
+  async function runAutomationSweep() {
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/automation/sweep', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            minPriority: 80,
+            maxActions: 3,
+            launch: true,
+            includeArchived: true
+          })
+        }),
+      (result) => `Automation sweep executed ${result.executed} action${result.executed === 1 ? '' : 's'}`
+    )
+    if (!payload) return
+    await loadAutomationQueue()
+    const lastSpawned = [...(payload.results || [])].reverse().find((row) => row.result?.spawnedSession)
+    await refreshAfterMutation(lastSpawned?.result?.spawnedSession?.id || selectedId)
+  }
+
   async function executeAutomationQueueItem(item) {
     const session = item?.session
     const recommendation = item?.recommendation
@@ -3319,6 +3340,9 @@ export default function App() {
                     <button type="button" className="ghost" onClick={() => loadAutomationQueue()}>Refresh queue</button>
                     <button type="button" className="primary" onClick={() => executeNextAutomation()} disabled={!automationQueue.items?.some((item) => item.executable && item.priority >= 80)}>
                       Execute top
+                    </button>
+                    <button type="button" className="primary" onClick={() => runAutomationSweep()} disabled={!automationQueue.items?.some((item) => item.executable && item.priority >= 80)}>
+                      Sweep max 3
                     </button>
                   </div>
                 </div>

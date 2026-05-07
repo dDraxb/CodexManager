@@ -263,6 +263,47 @@ def test_api_global_automation_queue_executes_top_item(configured_modules, git_r
     assert response.json()["count"] == 0
 
 
+def test_api_automation_sweep_runs_multiple_distinct_actions(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    session_ids = []
+    for name in ["api-sweep-one", "api-sweep-two"]:
+        response = client.post(
+            "/api/sessions/start",
+            json={
+                "name": name,
+                "repoPath": str(git_repo),
+                "profile": "safe-edit",
+                "prompt": f"{name} needs validation",
+                "launch": False,
+            },
+        )
+        assert response.status_code == 200, response.text
+        session_ids.append(response.json()["id"])
+
+    with configured_modules["database"].get_conn() as conn:
+        for session_id in session_ids:
+            conn.execute(
+                "UPDATE sessions SET changed_since_green_validation = 1, changed_since_green_reason = ? WHERE id = ?",
+                ("code changed since green validation", session_id),
+            )
+
+    response = client.post(
+        "/api/automation/sweep",
+        json={"minPriority": 80, "maxActions": 2, "launch": False, "includeArchived": True},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["executed"] == 2
+    spawned = [row["result"]["spawnedSession"] for row in payload["results"]]
+    assert {row["parent_session_id"] for row in spawned} == set(session_ids)
+    assert all(row["automation_action"] == "spawn_validation" for row in spawned)
+    assert payload["remainingCandidates"] == 0
+
+
 def test_api_start_auto_init_git(configured_modules, tmp_path):
     from app.api import server
 
