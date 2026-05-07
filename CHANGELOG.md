@@ -24,6 +24,7 @@
 - Added Codex environment management improvements for config presets, structured config editing, saved preset libraries, MCP dependency visibility, imported Codex history, and richer dashboard controls.
 
 ### Changed
+- Updated the canonical plan to mark Layer 4 and Layer 5 as baseline implemented and Layer 8 notifications as partially implemented.
 - Session stop now attempts to create a stop handoff automatically without blocking the stop operation if handoff generation fails.
 - Dashboard detail loading now includes handoff history and automation recommendations for the selected session.
 - Dashboard command panel now includes a History tab for search, analytics, handoff review, and repo comparison.

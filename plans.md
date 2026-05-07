@@ -388,11 +388,11 @@ This layer turns the manager into something more operationally trustworthy for r
 
 ### V2 Layer 4 - Collaboration and handoff
 
-The current product tracks sessions, but it does not yet model work handoff as a first-class concept.
+Status: baseline implemented.
 
-V2 should add structured handoff support.
+The product now models work handoff as a first-class concept.
 
-That means each session can eventually have:
+Each session can now have persisted handoff records with:
 - a goal summary
 - a current state summary
 - unresolved questions
@@ -400,6 +400,9 @@ That means each session can eventually have:
 - files touched
 - suggested next actions
 - final disposition when stopped or archived
+- human notes
+- a resume brief
+- persisted automation recommendations
 
 This becomes valuable in multiple cases:
 - user pauses work and resumes later
@@ -407,28 +410,35 @@ This becomes valuable in multiple cases:
 - user wants to archive a session but retain its value
 - user wants a quick “what happened here” summary without reopening the full tmux context
 
-Over time, this should support:
+Implemented support includes:
 - stop-time session summaries
 - archive summaries
 - handoff notes
-- human review checklists
-- “resume briefing” when reopening a dormant session
+- “resume briefing” when reopening or spawning a follow-up session
+- automation follow-up prompts derived from handoff context
+
+Remaining expansion areas:
+- richer human review checklists
+- editable disposition workflows
+- handoff comparison across multiple candidate sessions
 
 This is especially important if the tool evolves beyond one-person local use.
 
 ### V2 Layer 5 - History, archive, search, and analytics
 
-V1 mostly treats history as stored rows plus event logs.
+Status: baseline implemented.
 
-V2 should make past work explorable and useful.
+Past work is now searchable and useful from the manager dashboard.
 
-This means:
+Implemented support includes:
 - searchable session history
-- filtering by repo, branch, profile, outcome, date, or validation state
+- filtering by repo, profile, status/archive state, and validation state
 - archived-session summaries
-- trend views over time
+- latest handoff visibility in history results
+- global automation queue across historical and live sessions
 - identifying repeat failure patterns
 - finding abandoned work that keeps resurfacing
+- repo session comparison for changed-file overlap
 
 Examples of useful historical questions:
 - which repos generate the most failed or abandoned sessions
@@ -436,7 +446,13 @@ Examples of useful historical questions:
 - which validation step fails most often
 - which tasks tend to require the most human intervention
 
-This layer is where the product starts becoming a real engineering insight tool, not just a live dashboard.
+Remaining expansion areas:
+- date range filters
+- richer trend views over time
+- full-text event/log search
+- saved history views
+
+This layer is now where the product starts becoming a real engineering insight tool, not just a live dashboard.
 
 ### V2 Layer 6 - Policies, presets, and repo-specific behavior
 
@@ -584,7 +600,9 @@ The important point is that the architecture now makes this possible without red
 
 ### V2 Layer 8 - Notifications and background operations
 
-Right now the dashboard is primarily poll-driven and user-observed.
+Status: partially implemented.
+
+The dashboard now supports opt-in browser notifications for sessions that need attention, wait for input, fail, or become lost.
 
 V2 should support more active operational assistance:
 - desktop notifications when a session needs input
