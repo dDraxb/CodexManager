@@ -3,6 +3,7 @@
 ## 2026-05-08
 
 ### Added
+- Added opt-in browser desktop notifications for sessions that need attention, wait for input, fail, or become lost.
 - Added a bounded automation sweep API that executes multiple high-priority follow-up actions while respecting queue duplicate suppression.
 - Added dashboard support for running a capped automation sweep from the History automation queue.
 - Added archive-handoff suppression so archive recommendations do not keep producing duplicate summaries after archive/stop handoffs exist.

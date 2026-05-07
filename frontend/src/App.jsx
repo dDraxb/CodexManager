@@ -887,6 +887,7 @@ export default function App() {
   const [mcpDependencies, setMcpDependencies] = useState({})
   const [fastPollUntil, setFastPollUntil] = useState(0)
   const [trendPanelHeight, setTrendPanelHeight] = useState(null)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
   const logOutputRef = useRef(null)
   const activityCardRef = useRef(null)
   const stickLogToBottomRef = useRef(true)
@@ -899,6 +900,7 @@ export default function App() {
   const loadedEnvironmentRepoRef = useRef(null)
   const createManagerDefaultsRequestRef = useRef(0)
   const adoptManagerDefaultsRequestRef = useRef(0)
+  const notifiedAttentionRef = useRef(new Set())
 
   const deferredQuery = useDeferredValue(sessionQuery)
   const normalizedQuery = deferredQuery.trim().toLowerCase()
@@ -1214,6 +1216,9 @@ export default function App() {
     void loadSessions()
     void loadReferenceData()
     void loadSavedConfigPresets()
+    if ('Notification' in window && Notification.permission === 'granted' && window.localStorage?.getItem('codexmgr.notificationsEnabled') === 'true') {
+      setNotificationsEnabled(true)
+    }
   }, [])
 
   useEffect(() => {
@@ -1241,6 +1246,24 @@ export default function App() {
     const timeout = setTimeout(() => setFastPollUntil(0), Math.max(0, fastPollUntil - Date.now()))
     return () => clearTimeout(timeout)
   }, [fastPollUntil])
+
+  useEffect(() => {
+    if (!notificationsEnabled || !('Notification' in window) || Notification.permission !== 'granted') return
+    for (const session of sessions) {
+      const attentionStatus = session.status === 'waiting_input' || session.status === 'failed' || session.status === 'lost'
+      if (!attentionStatus && !session.needs_attention) continue
+      const key = `${session.id}:${session.status}:${session.updated_at}`
+      if (notifiedAttentionRef.current.has(key)) continue
+      notifiedAttentionRef.current.add(key)
+      const title = `${session.name} needs attention`
+      const body = `${session.status} · ${session.health_reason || session.priority_reason || session.last_known_activity || 'Inspect session'}`
+      try {
+        new Notification(title, { body })
+      } catch (_err) {
+        // Notification construction can fail in restricted browser contexts.
+      }
+    }
+  }, [notificationsEnabled, sessions])
 
   useEffect(() => {
     if (!selectedId) {
@@ -1314,6 +1337,29 @@ export default function App() {
       // Clipboard access can be blocked in browser privacy modes.
     }
     notify('success', `Command: ${command}`)
+  }
+
+  async function enableDesktopNotifications() {
+    if (!('Notification' in window)) {
+      notify('error', 'This browser does not support desktop notifications')
+      return
+    }
+    if (Notification.permission === 'granted') {
+      setNotificationsEnabled(true)
+      window.localStorage?.setItem('codexmgr.notificationsEnabled', 'true')
+      notify('success', 'Desktop notifications enabled')
+      return
+    }
+    if (Notification.permission === 'denied') {
+      notify('error', 'Desktop notifications are blocked in browser settings')
+      return
+    }
+    const permission = await Notification.requestPermission()
+    if (permission === 'granted') {
+      setNotificationsEnabled(true)
+      window.localStorage?.setItem('codexmgr.notificationsEnabled', 'true')
+      notify('success', 'Desktop notifications enabled')
+    }
   }
 
   async function refreshAfterMutation(nextSelectedId = selectedId) {
@@ -2920,6 +2966,9 @@ export default function App() {
           <p className="subtitle">Control plane in one place. Execution routed where tmux and codex actually live.</p>
         </div>
         <div className="controls">
+          <button type="button" onClick={enableDesktopNotifications}>
+            {notificationsEnabled ? 'Notifications on' : 'Enable notifications'}
+          </button>
           <label>
             Refresh
             <select value={refresh} onChange={(event) => setRefresh(Number(event.target.value))}>
