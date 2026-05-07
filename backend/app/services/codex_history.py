@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -20,6 +21,28 @@ class CodexThreadCandidate:
     first_user_message: str
     title: str
     rollout_path: str
+
+
+@dataclass(slots=True)
+class ImportedCodexSession:
+    id: str
+    cwd: str
+    started_at: str
+    updated_at: str
+    first_user_message: str
+    title: str
+    rollout_path: str
+    event_count: int
+    response_count: int
+    command_count: int
+    last_event_type: str
+    cli_version: str
+    model_provider: str
+    source: str
+    originator: str
+    manager_session_id: str | None
+    manager_session_name: str | None
+    manager_status: str | None
 
 
 def _codex_home() -> Path:
@@ -112,6 +135,117 @@ def _state_db_connection() -> sqlite3.Connection | None:
     if state_db is None or not state_db.exists():
         return None
     return sqlite3.connect(state_db)
+
+
+def _parse_json_line(raw: str) -> dict[str, Any] | None:
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _session_files() -> list[Path]:
+    root = _codex_home() / "sessions"
+    if not root.exists() or not root.is_dir():
+        return []
+    return sorted(root.rglob("rollout-*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def _manager_session_link_map() -> dict[str, dict[str, str]]:
+    from app.services.sessions import list_sessions
+
+    links: dict[str, dict[str, str]] = {}
+    for session in list_sessions():
+        if not session.codex_session_id:
+            continue
+        links[session.codex_session_id] = {
+            "id": session.id,
+            "name": session.name,
+            "status": session.status,
+        }
+    return links
+
+
+def _scan_rollout_file(path: Path, manager_links: dict[str, dict[str, str]]) -> ImportedCodexSession | None:
+    meta: dict[str, Any] | None = None
+    first_user_message = ""
+    updated_at = ""
+    event_count = 0
+    response_count = 0
+    command_count = 0
+    last_event_type = ""
+
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            row = _parse_json_line(raw_line)
+            if row is None:
+                continue
+            event_count += 1
+            row_type = str(row.get("type") or "")
+            last_event_type = row_type or last_event_type
+            updated_at = str(row.get("timestamp") or updated_at)
+
+            if row_type == "session_meta" and isinstance(row.get("payload"), dict):
+                meta = row["payload"]
+                continue
+
+            if row_type == "response_item":
+                response_count += 1
+                payload = row.get("payload")
+                if isinstance(payload, dict) and str(payload.get("type") or "") == "function_call":
+                    command_count += 1
+                continue
+
+            if row_type == "event_msg":
+                payload = row.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                payload_type = str(payload.get("type") or "")
+                if payload_type == "user_message" and not first_user_message:
+                    first_user_message = str(payload.get("message") or "").strip()
+                elif payload_type == "exec_command_end":
+                    command_count += 1
+
+    if not isinstance(meta, dict):
+        return None
+
+    session_id = str(meta.get("id") or "").strip()
+    started_at = str(meta.get("timestamp") or "").strip()
+    cwd = str(meta.get("cwd") or "").strip()
+    if not session_id or not started_at:
+        return None
+
+    thread = get_codex_thread(session_id)
+    title = thread.title if thread and thread.title else ""
+    if not first_user_message and thread and thread.first_user_message:
+        first_user_message = thread.first_user_message
+    if not title:
+        title = first_user_message
+    linked = manager_links.get(session_id, {})
+    return ImportedCodexSession(
+        id=session_id,
+        cwd=cwd,
+        started_at=started_at,
+        updated_at=updated_at or started_at,
+        first_user_message=first_user_message,
+        title=title,
+        rollout_path=str(path),
+        event_count=event_count,
+        response_count=response_count,
+        command_count=command_count,
+        last_event_type=last_event_type,
+        cli_version=str(meta.get("cli_version") or "").strip(),
+        model_provider=str(meta.get("model_provider") or "").strip(),
+        source=str(meta.get("source") or "").strip(),
+        originator=str(meta.get("originator") or "").strip(),
+        manager_session_id=linked.get("id"),
+        manager_session_name=linked.get("name"),
+        manager_status=linked.get("status"),
+    )
 
 
 def find_recent_codex_session_id(cwd: str, prompt: str | None, since: str | None) -> str | None:
@@ -221,3 +355,34 @@ def list_resume_candidates(*, thread_id: str | None, cwd: str | None, prompt: st
             break
 
     return candidates[:limit]
+
+
+def list_imported_codex_sessions(*, cwd: str | None = None, query: str | None = None, limit: int = 20) -> list[ImportedCodexSession]:
+    normalized_cwd = _normalize_cwd_filter(cwd)
+    normalized_query = _normalize_text(query)
+    manager_links = _manager_session_link_map()
+    rows: list[ImportedCodexSession] = []
+    for path in _session_files():
+        parsed = _scan_rollout_file(path, manager_links)
+        if parsed is None:
+            continue
+        if normalized_cwd and not (
+            parsed.cwd == normalized_cwd or parsed.cwd.startswith(normalized_cwd.rstrip("/") + "/")
+        ):
+            continue
+        if normalized_query:
+            haystack = " ".join(
+                [
+                    parsed.id,
+                    parsed.cwd,
+                    parsed.title,
+                    parsed.first_user_message,
+                    parsed.manager_session_name or "",
+                ]
+            ).lower()
+            if normalized_query not in haystack:
+                continue
+        rows.append(parsed)
+        if len(rows) >= limit:
+            break
+    return rows

@@ -56,6 +56,85 @@ def test_api_start_and_list(configured_modules, git_repo):
     assert summary["total"] == 1
 
 
+def test_api_handoffs_automation_and_history(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "api-autonomy-layer",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "prompt": "Build automated handoff flow",
+            "launch": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    session_id = response.json()["id"]
+
+    with configured_modules["database"].get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET changed_since_green_validation = 1,
+                changed_since_green_reason = ?,
+                validation_policy_state = ?,
+                validation_policy_reason = ?,
+                changed_files_preview = ?,
+                changed_files_count = 1
+            WHERE id = ?
+            """,
+            (
+                "code changed since the last green validation",
+                "required_missing",
+                "tests have not been rerun",
+                json.dumps(["backend/app/api/server.py"]),
+                session_id,
+            ),
+        )
+
+    response = client.get(f"/api/sessions/{session_id}/automation")
+    assert response.status_code == 200, response.text
+    automation = response.json()
+    actions = {item["action"] for item in automation["recommendations"]}
+    assert "spawn_validation" in actions
+    assert "run_validation_recipe" in actions
+    assert "Validation:" in automation["resumeBrief"]
+
+    response = client.post(
+        f"/api/sessions/{session_id}/handoffs",
+        json={"kind": "generated", "humanNotes": "Prefer an autonomous validation follow-up."},
+    )
+    assert response.status_code == 200, response.text
+    handoff = response.json()
+    assert handoff["kind"] == "generated"
+    assert "Build automated handoff flow" in handoff["goal_summary"]
+    assert "Prefer an autonomous validation follow-up." in handoff["resume_brief"]
+
+    response = client.get(f"/api/sessions/{session_id}/handoffs")
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["id"] == handoff["id"]
+
+    response = client.get("/api/history/search", params={"query": "autonomous validation", "archived": "false"})
+    assert response.status_code == 200, response.text
+    history = response.json()
+    assert history["count"] == 1
+    assert history["sessions"][0]["latestHandoff"]["id"] == handoff["id"]
+
+    response = client.get("/api/history/analytics")
+    assert response.status_code == 200, response.text
+    analytics = response.json()
+    assert analytics["totalSessions"] == 1
+    assert analytics["byStatus"]["created"] == 1
+
+    response = client.get("/api/history/compare", params={"repo_path": str(git_repo)})
+    assert response.status_code == 200, response.text
+    assert response.json()["sessions"][0]["id"] == session_id
+
+
 def test_api_start_auto_init_git(configured_modules, tmp_path):
     from app.api import server
 
@@ -241,6 +320,103 @@ def test_api_applies_codex_config_preset(configured_modules, tmp_path, monkeypat
     )
     assert response.status_code == 200, response.text
     assert (codex_home / "config.toml").read_text(encoding="utf-8") == 'model = "gpt-5.4"\npersonality = "pragmatic"\n'
+
+
+def test_api_lists_repo_specific_codex_config_presets(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    repo = tmp_path / "repo"
+    (repo / ".codex").mkdir(parents=True)
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (repo / ".codex" / "config-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "backend-safe": {
+                        "label": "Backend Safe",
+                        "description": "Repo-specific preset",
+                        "content": 'model = "gpt-5.5"\nreasoning_effort = "high"\n',
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get("/api/codex-config-presets", params={"repo_path": str(repo)})
+    assert response.status_code == 200
+    preset = next(item for item in response.json()["presets"] if item["id"] == "backend-safe")
+    assert preset["source"] == "repo"
+    assert preset["repoPath"] == str(repo)
+
+
+def test_api_saves_and_deletes_user_codex_config_presets(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    save_response = client.post(
+        "/api/codex-config-presets/saved",
+        json={
+            "scope": "user",
+            "presetId": "team-safe",
+            "label": "Team Safe",
+            "description": "Manager-owned preset",
+            "content": 'model = "gpt-5.4"\n',
+            "mode": "overlay",
+        },
+    )
+    assert save_response.status_code == 200, save_response.text
+    assert (codexmgr_home / "config-presets.json").exists()
+
+    list_response = client.get("/api/codex-config-presets/saved", params={"scope": "user"})
+    assert list_response.status_code == 200
+    assert list_response.json()["presets"][0]["id"] == "team-safe"
+
+    delete_response = client.post(
+        "/api/codex-config-presets/saved/delete",
+        json={"scope": "user", "presetId": "team-safe"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["preset"]["id"] == "team-safe"
+
+
+def test_api_saves_repo_codex_config_presets(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(tmp_path / ".codexmgr"))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/codex-config-presets/saved",
+        json={
+            "scope": "repo",
+            "repoPath": str(repo),
+            "presetId": "repo-safe",
+            "label": "Repo Safe",
+            "content": 'reasoning_effort = "high"\n',
+            "mode": "replace",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert (repo / ".codex" / "config-presets.json").exists()
+    payload = client.get("/api/codex-config-presets/saved", params={"scope": "repo", "repo_path": str(repo)}).json()
+    assert payload["presets"][0]["source"] == "repo"
 
 
 def test_api_lists_repo_policies(configured_modules, tmp_path, monkeypatch):
@@ -474,6 +650,61 @@ def test_api_reads_and_writes_workspace_codex_config(configured_modules, tmp_pat
         },
     )
     assert restore_response.status_code == 200
+
+
+def test_api_reads_structured_codex_config_metadata(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    repo = tmp_path / "repo"
+    config_path = repo / ".codex" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        'model = "gpt-5.4"\napproval_policy = "on-request"\n\n[mcp_servers.demo]\ncommand = "uvx"\nargs = ["tool"]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.get("/api/codex-config", params={"scope": "workspace", "repo_path": str(repo)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is True
+    assert any(field["key"] == "model" and field["common"] is True for field in payload["scalarFields"])
+    assert '"mcp_servers"' in payload["advancedJson"]
+
+
+def test_api_writes_structured_codex_config(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/codex-config/structured",
+        json={
+            "scope": "workspace",
+            "repoPath": str(repo),
+            "scalarFields": {
+                "model": "gpt-5.5",
+                "approval_policy": "never",
+                "sandbox_mode": "workspace-write",
+            },
+            "advancedJson": json.dumps({"mcp_servers": {"demo": {"command": "uvx", "args": ["tool"]}}}),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    content = (repo / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert 'model = "gpt-5.5"' in content
+    assert '[mcp_servers.demo]' in content
+    assert 'args = ["tool"]' in content
 
 
 def test_api_reads_and_writes_workspace_codex_rules(configured_modules, tmp_path, monkeypatch):
@@ -1113,6 +1344,46 @@ def test_api_previews_and_validates_codex_config(configured_modules, tmp_path, m
     assert "invalid TOML" in invalid_response.text
 
 
+def test_api_previews_codex_config_preset_overlay(configured_modules, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codex_home = tmp_path / ".codex"
+    codexmgr_home.mkdir()
+    codex_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    (codexmgr_home / "config-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "safe-investigation": {
+                        "label": "Safe Investigation",
+                        "content": 'personality = "pragmatic"\n',
+                        "mode": "overlay",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (codex_home / "config.toml").write_text('model = "gpt-5.4"\n', encoding="utf-8")
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/codex-config-presets/preview",
+        json={"presetId": "safe-investigation", "scope": "global", "mode": "overlay"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["preset"]["mode"] == "overlay"
+    assert any(line.startswith("+personality") for line in payload["diff"])
+    assert (codex_home / "config.toml").read_text(encoding="utf-8") == 'model = "gpt-5.4"\n'
+
+
 def test_api_start_applies_repo_policy_enforcement(configured_modules, git_repo, tmp_path, monkeypatch):
     from app.api import server
 
@@ -1709,6 +1980,92 @@ def test_api_codex_history_uses_repo_path_filter(configured_modules, monkeypatch
 
     assert response.status_code == 200
     assert response.json()["threads"][0]["cwd"] == "/repo/service-a"
+
+
+def test_api_codex_imported_history_uses_runner(configured_modules, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    class HistoryRunner:
+        def list_imported_codex_sessions(self, cwd, query, limit=20):
+            assert cwd == "/repo/service-a"
+            assert query == "vat"
+            return [
+                {
+                    "id": "019cf8f7-ee18-7e81-9683-4e3fc2008c79",
+                    "cwd": cwd,
+                    "started_at": "2026-03-17T00:25:23Z",
+                    "updated_at": "2026-03-17T00:27:23Z",
+                    "title": "VAT fix",
+                    "first_user_message": "VAT fix",
+                    "rollout_path": "/tmp/rollout.jsonl",
+                    "event_count": 4,
+                    "response_count": 2,
+                    "command_count": 1,
+                    "last_event_type": "response_item",
+                    "cli_version": "0.125.0",
+                    "model_provider": "openai",
+                    "source": "cli",
+                    "originator": "codex-tui",
+                    "manager_session_id": None,
+                    "manager_session_name": None,
+                    "manager_status": None,
+                }
+            ]
+
+    monkeypatch.setattr(server, "get_runner_client", lambda: HistoryRunner())
+
+    response = client.get("/api/codex/imported-history?cwd=/repo/service-a&query=vat")
+
+    assert response.status_code == 200
+    assert response.json()["threads"][0]["title"] == "VAT fix"
+
+
+def test_api_lists_codex_mcp_dependencies(configured_modules, git_repo, tmp_path, monkeypatch):
+    from app.api import server
+
+    codexmgr_home = tmp_path / ".codexmgr"
+    codexmgr_home.mkdir()
+    monkeypatch.setenv("CODEXMGR_HOME", str(codexmgr_home))
+    (codexmgr_home / "config-presets.json").write_text(
+        json.dumps(
+            {
+                "presets": {
+                    "with-playwright": {
+                        "label": "Playwright preset",
+                        "content": '[mcp_servers.playwright]\ncommand = "npx"\n',
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    start_response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "mcp-dependency-session",
+            "repoPath": str(git_repo),
+            "profile": "safe-edit",
+            "launch": False,
+        },
+    )
+    assert start_response.status_code == 200, start_response.text
+
+    response = client.get(
+        "/api/codex-mcp/dependencies",
+        params={"scope": "global", "name": "playwright", "repo_path": str(git_repo)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["presetDependencies"][0]["id"] == "with-playwright"
+    assert payload["sessionDependencies"][0]["name"] == "mcp-dependency-session"
 
 
 def test_api_can_update_codex_session_link(configured_modules, git_repo):

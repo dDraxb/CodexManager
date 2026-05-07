@@ -12,6 +12,14 @@ class CodexMcpError(RuntimeError):
     pass
 
 
+def _repo_matches(base_repo_path: str | None, candidate_repo_path: str | None) -> bool:
+    if not base_repo_path or not candidate_repo_path:
+        return False
+    normalized_base = str(Path(base_repo_path).expanduser())
+    normalized_candidate = str(Path(candidate_repo_path).expanduser())
+    return normalized_candidate == normalized_base or normalized_candidate.startswith(normalized_base.rstrip("/") + "/")
+
+
 def _uncomment_line(line: str) -> str:
     stripped = line.lstrip()
     if stripped.startswith("# "):
@@ -142,6 +150,57 @@ def list_codex_mcp_servers(*, scope: str, repo_path: str | None = None) -> dict:
                 }
             )
     return {"scope": scope, "path": str(path), "servers": rows}
+
+
+def describe_codex_mcp_dependencies(*, scope: str, name: str, repo_path: str | None = None) -> dict:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise CodexMcpError("MCP server name is required")
+
+    from app.services.codex_config_presets import list_manager_codex_config_presets
+    from app.services.sessions import list_sessions
+
+    preset_rows: list[dict] = []
+    for preset in list_manager_codex_config_presets(repo_path):
+        try:
+            payload = tomllib.loads(str(preset.get("content") or ""))
+        except tomllib.TOMLDecodeError:
+            continue
+        mcp_servers = payload.get("mcp_servers")
+        if not isinstance(mcp_servers, dict) or normalized_name not in mcp_servers:
+            continue
+        preset_rows.append(
+            {
+                "id": str(preset["id"]),
+                "label": str(preset.get("label") or preset["id"]),
+                "source": str(preset.get("source") or ""),
+                "repoPath": preset.get("repoPath"),
+                "mode": str(preset.get("mode") or "overlay"),
+            }
+        )
+
+    session_rows: list[dict] = []
+    for session in list_sessions():
+        if scope == "workspace":
+            if not _repo_matches(repo_path, session.repo_path):
+                continue
+        session_rows.append(
+            {
+                "id": session.id,
+                "name": session.name,
+                "status": session.status,
+                "repoPath": session.repo_path,
+                "mode": session.mode,
+            }
+        )
+
+    return {
+        "scope": scope,
+        "name": normalized_name,
+        "repoPath": repo_path,
+        "presetDependencies": preset_rows,
+        "sessionDependencies": session_rows,
+    }
 
 
 def create_codex_mcp_server(

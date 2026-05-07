@@ -13,7 +13,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.monitoring.reconciler import reconcile_once
-from app.services.codex_config_presets import get_manager_codex_config_preset, list_manager_codex_config_presets
+from app.services.codex_config_presets import (
+    apply_codex_config_preset as apply_codex_config_preset_payload,
+    delete_codex_config_preset,
+    list_manager_codex_config_presets,
+    list_saved_codex_config_presets,
+    preview_apply_codex_config_preset,
+    save_codex_config_preset,
+)
 from app.services.manager_rules import (
     ManagerRulesError,
     effective_session_defaults,
@@ -22,6 +29,9 @@ from app.services.manager_rules import (
     restore_manager_rules,
     write_manager_rules,
 )
+from app.services.codex_mcp import describe_codex_mcp_dependencies
+from app.services.handoff import automation_snapshot, create_handoff, list_handoffs
+from app.services.history import compare_repo_sessions, search_session_history, session_analytics
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -128,6 +138,23 @@ class CodexConfigPresetApplyRequest(BaseModel):
     preset_id: str = Field(alias="presetId")
     scope: str
     repo_path: str | None = Field(default=None, alias="repoPath")
+    mode: str | None = None
+
+
+class CodexConfigPresetWriteRequest(BaseModel):
+    scope: str
+    preset_id: str = Field(alias="presetId")
+    label: str = ""
+    description: str = ""
+    content: str
+    mode: str = "overlay"
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class CodexConfigPresetDeleteRequest(BaseModel):
+    scope: str
+    preset_id: str = Field(alias="presetId")
+    repo_path: str | None = Field(default=None, alias="repoPath")
 
 
 class ValidationRecipeMaterializeRequest(BaseModel):
@@ -223,6 +250,13 @@ class CodexConfigRestoreRequest(BaseModel):
     repo_path: str | None = Field(default=None, alias="repoPath")
 
 
+class CodexConfigStructuredWriteRequest(BaseModel):
+    scope: str
+    scalar_fields: dict = Field(default_factory=dict, alias="scalarFields")
+    advanced_json: str = Field(default="", alias="advancedJson")
+    repo_path: str | None = Field(default=None, alias="repoPath")
+
+
 class CodexRulesWriteRequest(BaseModel):
     scope: str
     content: str
@@ -279,6 +313,11 @@ class CodexMcpEnabledRequest(BaseModel):
     name: str
     enabled: bool
     repo_path: str | None = Field(default=None, alias="repoPath")
+
+
+class HandoffCreateRequest(BaseModel):
+    kind: str = "generated"
+    human_notes: str = Field(default="", alias="humanNotes")
 
 
 def _session_or_404(session_id: str):
@@ -338,10 +377,74 @@ def session_validation_history(session_id: str, limit: int = 30) -> list[dict]:
     return [asdict(entry) for entry in list_validation_history(session_id, limit)]
 
 
+@app.get("/api/sessions/{session_id}/handoffs")
+def session_handoffs(session_id: str, limit: int = 20) -> list[dict]:
+    _session_or_404(session_id)
+    try:
+        return [asdict(row) for row in list_handoffs(session_id, limit=limit)]
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/sessions/{session_id}/handoffs")
+def session_create_handoff(session_id: str, request: HandoffCreateRequest) -> dict:
+    _session_or_404(session_id)
+    try:
+        return asdict(create_handoff(session_id, kind=request.kind, human_notes=request.human_notes))
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/sessions/{session_id}/automation")
+def session_automation(session_id: str) -> dict:
+    _session_or_404(session_id)
+    try:
+        return automation_snapshot(session_id)
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/history/search")
+def history_search(
+    query: str | None = None,
+    repo_path: str | None = None,
+    status: str | None = None,
+    profile: str | None = None,
+    validation_state: str | None = None,
+    archived: bool | None = None,
+    limit: int = 50,
+) -> dict:
+    return search_session_history(
+        query=query,
+        repo_path=repo_path,
+        status=status,
+        profile=profile,
+        validation_state=validation_state,
+        archived=archived,
+        limit=limit,
+    )
+
+
+@app.get("/api/history/analytics")
+def history_analytics() -> dict:
+    return session_analytics()
+
+
+@app.get("/api/history/compare")
+def history_compare(repo_path: str) -> dict:
+    return compare_repo_sessions(repo_path)
+
+
 @app.get("/api/codex/history")
 def codex_history(query: str | None = None, cwd: str | None = None, limit: int = 20) -> dict:
     client = get_runner_client()
     return {"threads": client.list_codex_threads(cwd, query, limit=limit)}
+
+
+@app.get("/api/codex/imported-history")
+def codex_imported_history(query: str | None = None, cwd: str | None = None, limit: int = 20) -> dict:
+    client = get_runner_client()
+    return {"threads": client.list_imported_codex_sessions(cwd, query, limit=limit)}
 
 
 @app.get("/api/validation-presets")
@@ -350,8 +453,44 @@ def validation_presets() -> dict:
 
 
 @app.get("/api/codex-config-presets")
-def codex_config_presets() -> dict:
-    return {"presets": list_manager_codex_config_presets()}
+def codex_config_presets(repo_path: str | None = None) -> dict:
+    return {"presets": list_manager_codex_config_presets(repo_path)}
+
+
+@app.get("/api/codex-config-presets/saved")
+def saved_codex_config_presets(scope: str, repo_path: str | None = None) -> dict:
+    try:
+        return list_saved_codex_config_presets(scope, repo_path)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-config-presets/saved")
+def save_saved_codex_config_preset(request: CodexConfigPresetWriteRequest) -> dict:
+    try:
+        return save_codex_config_preset(
+            scope=request.scope,
+            preset_id=request.preset_id,
+            label=request.label,
+            description=request.description,
+            content=request.content,
+            mode=request.mode,
+            repo_path=request.repo_path,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/codex-config-presets/saved/delete")
+def delete_saved_codex_config_preset(request: CodexConfigPresetDeleteRequest) -> dict:
+    try:
+        return delete_codex_config_preset(
+            scope=request.scope,
+            preset_id=request.preset_id,
+            repo_path=request.repo_path,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/repo-policies")
@@ -589,6 +728,20 @@ def save_codex_config(request: CodexConfigWriteRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/codex-config/structured")
+def save_structured_codex_config(request: CodexConfigStructuredWriteRequest) -> dict:
+    client = get_runner_client()
+    try:
+        return client.write_structured_codex_config(
+            request.scope,
+            request.scalar_fields,
+            request.advanced_json,
+            request.repo_path,
+        )
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/codex-config/restore")
 def restore_codex_config_api(request: CodexConfigRestoreRequest) -> dict:
     client = get_runner_client()
@@ -679,6 +832,14 @@ def codex_mcp(scope: str, repo_path: str | None = None) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/codex-mcp/dependencies")
+def codex_mcp_dependencies(scope: str, name: str, repo_path: str | None = None) -> dict:
+    try:
+        return describe_codex_mcp_dependencies(scope=scope, name=name, repo_path=repo_path)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/codex-mcp")
 def create_codex_mcp_api(request: CodexMcpCreateRequest) -> dict:
     client = get_runner_client()
@@ -738,12 +899,28 @@ def apply_validation_preset(request: ValidationPresetApplyRequest) -> dict:
     return {"configPath": config_path}
 
 
+@app.post("/api/codex-config-presets/preview")
+def preview_codex_config_preset_apply(request: CodexConfigPresetApplyRequest) -> dict:
+    try:
+        return preview_apply_codex_config_preset(
+            scope=request.scope,
+            preset_id=request.preset_id,
+            repo_path=request.repo_path,
+            mode=request.mode,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/codex-config-presets/apply")
 def apply_codex_config_preset(request: CodexConfigPresetApplyRequest) -> dict:
-    client = get_runner_client()
     try:
-        preset = get_manager_codex_config_preset(request.preset_id)
-        return client.write_codex_config(request.scope, preset["content"], request.repo_path)
+        return apply_codex_config_preset_payload(
+            scope=request.scope,
+            preset_id=request.preset_id,
+            repo_path=request.repo_path,
+            mode=request.mode,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -816,6 +993,10 @@ def session_stop(session_id: str) -> dict:
         session = stop_session(session_id)
     except SessionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        create_handoff(session.id, kind="stop")
+    except SessionError:
+        pass
     return asdict(session)
 
 

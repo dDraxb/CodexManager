@@ -49,7 +49,17 @@ const EMPTY_CONFIG_PREVIEW = {
   scope: '',
   path: '',
   valid: false,
-  diff: []
+  diff: [],
+  preset: null
+}
+
+const EMPTY_CONFIG_PRESET_FORM = {
+  scope: 'user',
+  presetId: '',
+  label: '',
+  description: '',
+  mode: 'overlay',
+  content: ''
 }
 
 const EMPTY_RULES_EDITOR = {
@@ -121,6 +131,15 @@ const EMPTY_MCP_FORM = {
   editing: false
 }
 
+const EMPTY_HISTORY_FILTERS = {
+  query: '',
+  repoPath: '',
+  status: '',
+  profile: '',
+  validationState: '',
+  archived: 'all'
+}
+
 const MANAGER_RULES_TEMPLATE = `{
   "version": 1,
   "rules": [
@@ -144,6 +163,7 @@ const MANAGER_RULES_TEMPLATE = `{
 const COMMAND_TABS = [
   { id: 'create', label: 'New session' },
   { id: 'adopt', label: 'Adopt session' },
+  { id: 'history', label: 'History' },
   { id: 'cleanup', label: 'Cleanup' },
   { id: 'environment', label: 'Codex environment' }
 ]
@@ -802,12 +822,15 @@ export default function App() {
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [validationPresets, setValidationPresets] = useState([])
   const [configPresets, setConfigPresets] = useState([])
+  const [savedConfigPresetLibrary, setSavedConfigPresetLibrary] = useState({ scope: 'user', path: '', presets: [], backups: [] })
   const [repoPolicies, setRepoPolicies] = useState([])
   const [createManagerDefaults, setCreateManagerDefaults] = useState(EMPTY_EFFECTIVE_MANAGER_DEFAULTS)
   const [createManagerDefaultFields, setCreateManagerDefaultFields] = useState([])
   const [adoptManagerDefaults, setAdoptManagerDefaults] = useState(EMPTY_EFFECTIVE_MANAGER_DEFAULTS)
   const [selectedValidationPreset, setSelectedValidationPreset] = useState('')
   const [selectedConfigPreset, setSelectedConfigPreset] = useState('')
+  const [configPresetMode, setConfigPresetMode] = useState('overlay')
+  const [configPresetForm, setConfigPresetForm] = useState(EMPTY_CONFIG_PRESET_FORM)
   const [recipeDraft, setRecipeDraft] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
@@ -815,6 +838,9 @@ export default function App() {
   const [events, setEvents] = useState([])
   const [logs, setLogs] = useState([])
   const [validationHistory, setValidationHistory] = useState([])
+  const [handoffs, setHandoffs] = useState([])
+  const [automation, setAutomation] = useState(null)
+  const [handoffNotes, setHandoffNotes] = useState('')
   const [refresh, setRefresh] = useState(10)
   const [error, setError] = useState('')
   const [toast, setToast] = useState(null)
@@ -848,9 +874,16 @@ export default function App() {
   const [environmentSection, setEnvironmentSection] = useState('overview')
   const [historyQuery, setHistoryQuery] = useState('')
   const [historyThreads, setHistoryThreads] = useState([])
+  const [importedHistoryThreads, setImportedHistoryThreads] = useState([])
+  const [historyFilters, setHistoryFilters] = useState(EMPTY_HISTORY_FILTERS)
+  const [historyResults, setHistoryResults] = useState({ sessions: [], count: 0, filters: EMPTY_HISTORY_FILTERS })
+  const [historyAnalytics, setHistoryAnalytics] = useState(null)
+  const [historyCompare, setHistoryCompare] = useState(null)
   const [resumePoints, setResumePoints] = useState([])
   const [showResumeChooser, setShowResumeChooser] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [loadingImportedHistory, setLoadingImportedHistory] = useState(false)
+  const [mcpDependencies, setMcpDependencies] = useState({})
   const [fastPollUntil, setFastPollUntil] = useState(0)
   const [trendPanelHeight, setTrendPanelHeight] = useState(null)
   const logOutputRef = useRef(null)
@@ -916,6 +949,7 @@ export default function App() {
     () => visibleSessions.find((session) => session.id === selectedId) || sessions.find((session) => session.id === selectedId) || null,
     [selectedId, sessions, visibleSessions]
   )
+  const activeRepoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
   const matchedCreatePolicy = useMemo(
     () => matchRepoPolicyForPath(repoPolicies, createForm.repoPath),
     [createForm.repoPath, repoPolicies]
@@ -1006,6 +1040,13 @@ export default function App() {
   }, [configPresets])
 
   useEffect(() => {
+    const preset = configPresets.find((item) => item.id === selectedConfigPreset)
+    if (preset?.mode) {
+      setConfigPresetMode(preset.mode)
+    }
+  }, [configPresets, selectedConfigPreset])
+
+  useEffect(() => {
     setRecipeDraft(createRecipeDraft(validationRecipe))
   }, [detail?.validation_recipe_json, selectedSession?.validation_recipe_json])
 
@@ -1047,12 +1088,12 @@ export default function App() {
     }
   }
 
-  async function loadReferenceData() {
+  async function loadReferenceData(repoPath = activeRepoPath) {
     try {
       setError('')
       const [presetPayload, configPresetPayload, repoPolicyPayload] = await Promise.all([
         fetchJson('/api/validation-presets'),
-        fetchJson('/api/codex-config-presets'),
+        fetchJson(repoPath ? `/api/codex-config-presets?repo_path=${encodeURIComponent(repoPath)}` : '/api/codex-config-presets'),
         fetchJson('/api/repo-policies')
       ])
       startTransition(() => {
@@ -1067,6 +1108,24 @@ export default function App() {
     }
   }
 
+  async function loadSavedConfigPresets(scope = configPresetForm.scope, repoPath = activeRepoPath) {
+    const normalizedRepoPath = repoPath.trim()
+    if (scope === 'repo' && !normalizedRepoPath) {
+      setSavedConfigPresetLibrary({ scope, path: '', presets: [], backups: [] })
+      return
+    }
+    const query = new URLSearchParams({ scope })
+    if (scope === 'repo' && normalizedRepoPath) {
+      query.set('repo_path', normalizedRepoPath)
+    }
+    const payload = await runRequest(
+      () => fetchJson(`/api/codex-config-presets/saved?${query.toString()}`),
+      null
+    )
+    if (!payload) return
+    setSavedConfigPresetLibrary(payload)
+  }
+
   async function loadDetail(id) {
     const requestId = detailRequestRef.current + 1
     detailRequestRef.current = requestId
@@ -1077,6 +1136,8 @@ export default function App() {
       setCodexEnvironment(null)
       setEvents([])
       setValidationHistory([])
+      setHandoffs([])
+      setAutomation(null)
       setLogs([])
       return
     }
@@ -1086,14 +1147,18 @@ export default function App() {
         setCodexEnvironment(null)
         setEvents([])
         setValidationHistory([])
+        setHandoffs([])
+        setAutomation(null)
         setLogs([])
       })
     }
     try {
-      const [nextDetail, nextEvents, nextValidationHistory, nextLogs] = await Promise.all([
+      const [nextDetail, nextEvents, nextValidationHistory, nextHandoffs, nextAutomation, nextLogs] = await Promise.all([
         fetchJson(`/api/sessions/${id}`),
         fetchJson(`/api/sessions/${id}/events?limit=25`),
         fetchJson(`/api/sessions/${id}/validation-history?limit=8`),
+        fetchJson(`/api/sessions/${id}/handoffs?limit=5`),
+        fetchJson(`/api/sessions/${id}/automation`),
         fetchJson(`/api/sessions/${id}/logs?tail=120`)
       ])
       if (detailRequestRef.current !== requestId) {
@@ -1104,6 +1169,8 @@ export default function App() {
         setDetail(nextDetail)
         setEvents(nextEvents)
         setValidationHistory(nextValidationHistory)
+        setHandoffs(nextHandoffs)
+        setAutomation(nextAutomation)
         setLogs(trimTrailingBlankLines((nextLogs.lines || []).map(sanitizeLogLine)))
       })
 
@@ -1145,7 +1212,16 @@ export default function App() {
   useEffect(() => {
     void loadSessions()
     void loadReferenceData()
+    void loadSavedConfigPresets()
   }, [])
+
+  useEffect(() => {
+    void loadReferenceData(activeRepoPath)
+  }, [activeRepoPath])
+
+  useEffect(() => {
+    void loadSavedConfigPresets(configPresetForm.scope, activeRepoPath)
+  }, [configPresetForm.scope, activeRepoPath])
 
   useEffect(() => {
     loadDetail(selectedId)
@@ -1318,6 +1394,101 @@ export default function App() {
     }
   }
 
+  async function generateHandoff(kind = 'generated', notes = handoffNotes) {
+    if (!selectedSession) {
+      notify('error', 'Select a session first')
+      return null
+    }
+    const payload = await runRequest(
+      () =>
+        fetchJson(`/api/sessions/${selectedSession.id}/handoffs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kind,
+            humanNotes: notes
+          })
+        }),
+      (handoff) => `Generated ${handoff.kind} handoff for ${selectedSession.name}`
+    )
+    if (!payload) return null
+    setHandoffNotes('')
+    await loadDetail(selectedSession.id)
+    return payload
+  }
+
+  async function handleAutomationAction(recommendation) {
+    if (!recommendation) return
+    if (recommendation.action === 'attach') {
+      await runAction('attach')
+      return
+    }
+    if (recommendation.action === 'resume_or_relaunch') {
+      if (canResumeFromHistory) {
+        await runAction('resume')
+        return
+      }
+      await loadResumePoints()
+      return
+    }
+    if (recommendation.action === 'compare_sessions') {
+      const repoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
+      setCommandTab('history')
+      setShowCommandPanel(true)
+      if (repoPath) {
+        setHistoryFilters((current) => ({ ...current, repoPath }))
+        await loadHistoryCompare(repoPath)
+      }
+      return
+    }
+    if (recommendation.action === 'archive_with_summary') {
+      await generateHandoff('archive', recommendation.reason || '')
+      return
+    }
+    await generateHandoff('generated', `${recommendation.label}: ${recommendation.reason}`)
+  }
+
+  async function loadHistorySearch(overrides = {}) {
+    const nextFilters = { ...historyFilters, ...overrides }
+    setHistoryFilters(nextFilters)
+    const query = new URLSearchParams({ limit: '50' })
+    if (nextFilters.query.trim()) query.set('query', nextFilters.query.trim())
+    if (nextFilters.repoPath.trim()) query.set('repo_path', nextFilters.repoPath.trim())
+    if (nextFilters.status) query.set('status', nextFilters.status)
+    if (nextFilters.profile) query.set('profile', nextFilters.profile)
+    if (nextFilters.validationState) query.set('validation_state', nextFilters.validationState)
+    if (nextFilters.archived !== 'all') query.set('archived', nextFilters.archived)
+    const payload = await runRequest(
+      () => fetchJson(`/api/history/search?${query.toString()}`),
+      (result) => `Found ${result.count} matching sessions`
+    )
+    if (!payload) return
+    setHistoryResults(payload)
+  }
+
+  async function loadHistoryAnalytics() {
+    const payload = await runRequest(
+      () => fetchJson('/api/history/analytics'),
+      null
+    )
+    if (!payload) return
+    setHistoryAnalytics(payload)
+  }
+
+  async function loadHistoryCompare(repoPath = historyFilters.repoPath || activeRepoPath) {
+    const normalizedRepoPath = repoPath.trim()
+    if (!normalizedRepoPath) {
+      notify('error', 'Provide a repo path first')
+      return
+    }
+    const payload = await runRequest(
+      () => fetchJson(`/api/history/compare?repo_path=${encodeURIComponent(normalizedRepoPath)}`),
+      (result) => `Compared ${result.sessions.length} sessions in this repo`
+    )
+    if (!payload) return
+    setHistoryCompare(payload)
+  }
+
   async function loadCodexHistory(query = historyQuery) {
     setLoadingHistory(true)
     try {
@@ -1335,6 +1506,23 @@ export default function App() {
       notify('error', message)
     } finally {
       setLoadingHistory(false)
+    }
+  }
+
+  async function loadImportedCodexHistory(query = historyQuery) {
+    setLoadingImportedHistory(true)
+    try {
+      const trimmedQuery = query.trim()
+      const repoPath = adoptForm.repoPath.trim()
+      const url = `/api/codex/imported-history?limit=12&query=${encodeURIComponent(trimmedQuery)}&cwd=${encodeURIComponent(repoPath)}`
+      const payload = await fetchJson(url)
+      setImportedHistoryThreads(payload.threads || [])
+    } catch (err) {
+      const message = formatError(err)
+      setError(message)
+      notify('error', message)
+    } finally {
+      setLoadingImportedHistory(false)
     }
   }
 
@@ -1871,7 +2059,7 @@ export default function App() {
   }
 
   async function loadCodexConfig(scope) {
-    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const repoPath = activeRepoPath
     const payload = await runRequest(
       () => fetchJson(`/api/codex-config?scope=${encodeURIComponent(scope)}&repo_path=${encodeURIComponent(repoPath)}`),
       null
@@ -1884,7 +2072,7 @@ export default function App() {
   }
 
   async function saveCodexConfig(scope) {
-    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const repoPath = activeRepoPath
     const config = codexConfigs[scope]
     if (!config) return
     const payload = await runRequest(
@@ -1909,7 +2097,7 @@ export default function App() {
   }
 
   async function restoreCodexConfig(scope, backupPath) {
-    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const repoPath = activeRepoPath
     const payload = await runRequest(
       () =>
         fetchJson('/api/codex-config/restore', {
@@ -1929,7 +2117,7 @@ export default function App() {
   }
 
   async function previewCodexConfig(scope) {
-    const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
+    const repoPath = activeRepoPath
     const config = codexConfigs[scope]
     if (!config) return
     const payload = await runRequest(
@@ -1949,6 +2137,60 @@ export default function App() {
     setConfigPreview(payload)
   }
 
+  function updateCodexConfigScalarField(scope, key, value) {
+    setCodexConfigs((current) => {
+      const config = current[scope]
+      if (!config) return current
+      const scalarFields = [...(config.scalarFields || [])]
+      const index = scalarFields.findIndex((field) => field.key === key)
+      if (index >= 0) {
+        scalarFields[index] = { ...scalarFields[index], value }
+      } else {
+        scalarFields.push({ key, value, type: 'string', common: true })
+      }
+      return {
+        ...current,
+        [scope]: {
+          ...config,
+          scalarFields
+        }
+      }
+    })
+  }
+
+  async function saveStructuredCodexConfig(scope) {
+    const repoPath = activeRepoPath
+    const config = codexConfigs[scope]
+    if (!config) return
+    const scalarFields = {}
+    for (const field of config.scalarFields || []) {
+      if (!field.common) continue
+      const normalizedValue = typeof field.value === 'string' ? field.value.trim() : field.value
+      if (normalizedValue === '' || normalizedValue == null) continue
+      scalarFields[field.key] = normalizedValue
+    }
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/codex-config/structured', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope,
+            scalarFields,
+            advancedJson: config.advancedJson || '{}',
+            repoPath: scope === 'workspace' ? repoPath : null
+          })
+        }),
+      (result) => `Saved structured ${scope} Codex config at ${result.path}`
+    )
+    if (!payload) return
+    await loadCodexConfig(scope)
+    if (selectedSession?.id) {
+      await loadDetail(selectedSession.id)
+    }
+    setConfigPreview(EMPTY_CONFIG_PREVIEW)
+  }
+
   function loadCodexConfigPreset(scope) {
     const preset = configPresets.find((item) => item.id === selectedConfigPreset)
     if (!preset) {
@@ -1965,25 +2207,127 @@ export default function App() {
     notify('success', `Loaded config preset ${preset.id} into the ${scope} editor`)
   }
 
+  function loadSavedConfigPresetIntoForm(preset) {
+    setConfigPresetForm({
+      scope: preset.source === 'repo' ? 'repo' : 'user',
+      presetId: preset.id || '',
+      label: preset.label || '',
+      description: preset.description || '',
+      mode: preset.mode || 'overlay',
+      content: preset.content || ''
+    })
+    notify('success', `Loaded preset ${preset.id} into the preset editor`)
+  }
+
+  function loadCurrentConfigIntoPresetForm(scope) {
+    const config = codexConfigs[scope]
+    if (!config) {
+      notify('error', 'Load a config first')
+      return
+    }
+    setConfigPresetForm((current) => ({
+      ...current,
+      content: config.content || ''
+    }))
+    notify('success', `Loaded ${scope} config into the preset editor`)
+  }
+
+  async function saveConfigPresetDraft() {
+    if (!configPresetForm.presetId.trim()) {
+      notify('error', 'Preset id is required')
+      return
+    }
+    if (configPresetForm.scope === 'repo' && !activeRepoPath) {
+      notify('error', 'Select a session with a repo before saving a repo preset')
+      return
+    }
+    const payload = await runRequest(
+      () => fetchJson('/api/codex-config-presets/saved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: configPresetForm.scope,
+          presetId: configPresetForm.presetId.trim(),
+          label: configPresetForm.label.trim(),
+          description: configPresetForm.description,
+          mode: configPresetForm.mode,
+          content: configPresetForm.content,
+          repoPath: configPresetForm.scope === 'repo' ? activeRepoPath : null
+        })
+      }),
+      (result) => `Saved ${result.scope} preset ${result.preset.id}`
+    )
+    if (!payload) return
+    await loadReferenceData(activeRepoPath)
+    await loadSavedConfigPresets(configPresetForm.scope, activeRepoPath)
+  }
+
+  async function deleteConfigPresetDraft(preset) {
+    const scope = preset?.source === 'repo' ? 'repo' : 'user'
+    const payload = await runRequest(
+      () => fetchJson('/api/codex-config-presets/saved/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope,
+          presetId: preset.id,
+          repoPath: scope === 'repo' ? activeRepoPath : null
+        })
+      }),
+      (result) => `Deleted ${result.scope} preset ${result.preset.id}`
+    )
+    if (!payload) return
+    if (configPresetForm.presetId === preset.id) {
+      setConfigPresetForm((current) => ({ ...EMPTY_CONFIG_PRESET_FORM, scope: current.scope }))
+    }
+    await loadReferenceData(activeRepoPath)
+    await loadSavedConfigPresets(scope, activeRepoPath)
+  }
+
   async function applyCodexConfigPreset(scope) {
     if (!selectedConfigPreset) {
       notify('error', 'Select a config preset first')
       return
     }
-    const repoPath = (detail?.repo_path || selectedSession?.repo_path || '').trim()
+    const repoPath = activeRepoPath
     const payload = {
       scope,
       presetId: selectedConfigPreset,
-      repoPath: scope === 'workspace' ? repoPath : null
+      repoPath: scope === 'workspace' ? repoPath : null,
+      mode: configPresetMode
     }
     await runRequest(
       () => fetchJson('/api/codex-config-presets/apply', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       }),
       () => `Applied config preset ${selectedConfigPreset} to ${scope} config`
     )
     await loadCodexConfig(scope)
+  }
+
+  async function previewCodexConfigPreset(scope) {
+    if (!selectedConfigPreset) {
+      notify('error', 'Select a config preset first')
+      return
+    }
+    const repoPath = activeRepoPath
+    const payload = await runRequest(
+      () => fetchJson('/api/codex-config-presets/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope,
+          presetId: selectedConfigPreset,
+          repoPath: scope === 'workspace' ? repoPath : null,
+          mode: configPresetMode
+        })
+      }),
+      null
+    )
+    if (!payload) return
+    setConfigPreview(payload)
   }
 
   async function loadCodexRules(scope) {
@@ -2307,6 +2651,23 @@ export default function App() {
     }
   }
 
+  async function loadCodexMcpDependencies(scope, name) {
+    const repoPath = activeRepoPath
+    const query = new URLSearchParams({ scope, name })
+    if (scope === 'workspace' && repoPath) {
+      query.set('repo_path', repoPath)
+    }
+    const payload = await runRequest(
+      () => fetchJson(`/api/codex-mcp/dependencies?${query.toString()}`),
+      null
+    )
+    if (!payload) return
+    setMcpDependencies((current) => ({
+      ...current,
+      [`${scope}:${name}`]: payload
+    }))
+  }
+
   async function applyValidationPresetToSelected() {
     const repoPath = detail?.repo_path || selectedSession?.repo_path || ''
     if (!repoPath || !selectedValidationPreset) {
@@ -2382,6 +2743,12 @@ export default function App() {
   useEffect(() => {
     loadManagerRuleDefaults('adopt', adoptForm.repoPath)
   }, [adoptForm.repoPath])
+
+  useEffect(() => {
+    if (commandTab !== 'history' || !showCommandPanel) return
+    void loadHistoryAnalytics()
+    void loadHistorySearch({ repoPath: historyFilters.repoPath || activeRepoPath })
+  }, [commandTab, showCommandPanel])
 
   useEffect(() => {
     if (commandTab !== 'environment' || !showCommandPanel) return
@@ -2480,9 +2847,11 @@ export default function App() {
                   ? 'Create and manage sessions'
                   : commandTab === 'adopt'
                     ? 'Adopt existing Codex work'
-                    : commandTab === 'environment'
-                      ? 'Inspect and shape Codex environment assets'
-                      : 'Review and clean archived sessions'
+                    : commandTab === 'history'
+                      ? 'Search, summarize, and automate follow-up'
+                      : commandTab === 'environment'
+                        ? 'Inspect and shape Codex environment assets'
+                        : 'Review and clean archived sessions'
               }</h2>
             </div>
             <div className="command-head-actions">
@@ -2735,6 +3104,189 @@ export default function App() {
                   {!historyThreads.length ? <p className="muted">No history loaded yet.</p> : null}
                 </div>
               </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Imported Rollout History</p>
+                    <p className="muted">Scans `CODEX_HOME/sessions` directly and surfaces rollout-backed history with manager linkage.</p>
+                  </div>
+                  <button className="ghost" type="button" onClick={() => loadImportedCodexHistory(historyQuery)}>
+                    {loadingImportedHistory ? 'Loading…' : 'Scan rollouts'}
+                  </button>
+                </div>
+                <div className="history-list">
+                  {importedHistoryThreads.map((thread) => (
+                    <div key={`${thread.id}-${thread.rollout_path}`} className="history-item">
+                      <div className="row between">
+                        <strong>{thread.title || thread.first_user_message || thread.id}</strong>
+                        <span className="badge badge-stopped">{formatEventTime(thread.updated_at)}</span>
+                      </div>
+                      <p className="muted">{thread.id}</p>
+                      <p className="muted">{thread.cwd}</p>
+                      <p className="muted">{`${thread.event_count} events · ${thread.command_count} commands · ${thread.cli_version || 'unknown CLI'}`}</p>
+                      {thread.manager_session_name ? (
+                        <p className="muted">{`Linked manager session: ${thread.manager_session_name} (${thread.manager_status})`}</p>
+                      ) : null}
+                      <button className="ghost" type="button" onClick={() => adoptFromHistory(thread)}>Use in adopt form</button>
+                    </div>
+                  ))}
+                  {!importedHistoryThreads.length ? <p className="muted">No imported rollout history loaded yet.</p> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {showCommandPanel && commandTab === 'history' ? (
+            <div className="command-pane">
+              <div className="command-head">
+                <div>
+                  <p className="eyebrow">Layer 5 History</p>
+                  <h2>Search and automation memory</h2>
+                </div>
+                <span className="badge badge-stopped">{historyResults.count || 0} matches</span>
+              </div>
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Search</p>
+                    <p className="muted">Search session state, repo metadata, latest handoff notes, and resume briefs.</p>
+                  </div>
+                  <button type="button" className="ghost" onClick={() => loadHistorySearch()}>Search</button>
+                </div>
+                <div className="command-form-grid">
+                  <input
+                    placeholder="Search sessions, notes, handoffs..."
+                    value={historyFilters.query}
+                    onChange={(event) => setHistoryFilters((current) => ({ ...current, query: event.target.value }))}
+                  />
+                  <input
+                    placeholder="Repo path"
+                    value={historyFilters.repoPath}
+                    onChange={(event) => setHistoryFilters((current) => ({ ...current, repoPath: event.target.value }))}
+                  />
+                  <select value={historyFilters.status} onChange={(event) => setHistoryFilters((current) => ({ ...current, status: event.target.value }))}>
+                    <option value="">Any status</option>
+                    <option value="created">created</option>
+                    <option value="running">running</option>
+                    <option value="waiting_input">waiting_input</option>
+                    <option value="idle">idle</option>
+                    <option value="finished">finished</option>
+                    <option value="failed">failed</option>
+                    <option value="stopped">stopped</option>
+                    <option value="lost">lost</option>
+                  </select>
+                  <select value={historyFilters.archived} onChange={(event) => setHistoryFilters((current) => ({ ...current, archived: event.target.value }))}>
+                    <option value="all">Active and archived</option>
+                    <option value="false">Active only</option>
+                    <option value="true">Archived only</option>
+                  </select>
+                </div>
+                <div className="row gap-sm">
+                  <button type="button" className="ghost" onClick={() => setHistoryFilters((current) => ({ ...current, repoPath: activeRepoPath }))} disabled={!activeRepoPath}>
+                    Use selected repo
+                  </button>
+                  <button type="button" className="ghost" onClick={() => loadHistoryCompare()}>
+                    Compare repo sessions
+                  </button>
+                  <button type="button" className="ghost" onClick={() => loadHistoryAnalytics()}>
+                    Refresh analytics
+                  </button>
+                </div>
+              </div>
+
+              <div className="environment-grid">
+                <div className="history-item">
+                  <strong>Total sessions</strong>
+                  <p className="muted">{historyAnalytics?.totalSessions ?? sessions.length}</p>
+                </div>
+                <div className="history-item">
+                  <strong>Archived</strong>
+                  <p className="muted">{historyAnalytics?.archivedSessions ?? archivedCount}</p>
+                </div>
+                <div className="history-item">
+                  <strong>Need attention</strong>
+                  <p className="muted">{historyAnalytics?.needsAttention ?? derivedSummary.needsAttention}</p>
+                </div>
+                <div className="history-item">
+                  <strong>Average duration</strong>
+                  <p className="muted">{formatDuration(historyAnalytics?.averageDurationSeconds || 0) || '0s'}</p>
+                </div>
+              </div>
+
+              {historyAnalytics?.repeatFailureRepos?.length ? (
+                <div className="history-browser">
+                  <div className="row between history-browser-head">
+                    <div>
+                      <p className="eyebrow">Repeat Failure Patterns</p>
+                      <p className="muted">Repos with multiple failed, lost, or stopped sessions that were not ready for review.</p>
+                    </div>
+                  </div>
+                  <div className="history-list">
+                    {historyAnalytics.repeatFailureRepos.map((row) => (
+                      <div key={row.repo} className="history-item">
+                        <div className="row between">
+                          <strong>{row.repo}</strong>
+                          <span className="badge badge-failed">{row.abandoned} abandoned</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {historyCompare ? (
+                <div className="history-browser">
+                  <div className="row between history-browser-head">
+                    <div>
+                      <p className="eyebrow">Repo Comparison</p>
+                      <p className="muted">{historyCompare.repoPath}</p>
+                    </div>
+                    <span className="badge badge-stopped">{historyCompare.sessions?.length || 0} sessions</span>
+                  </div>
+                  {historyCompare.overlaps?.length ? (
+                    <div className="history-list">
+                      {historyCompare.overlaps.slice(0, 8).map((overlap) => (
+                        <div key={overlap.path} className="history-item">
+                          <strong>{overlap.path}</strong>
+                          <p className="muted">{overlap.sessions.join(', ')}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">No changed-file overlap detected for this repo.</p>
+                  )}
+                </div>
+              ) : null}
+
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Results</p>
+                    <p className="muted">Latest handoffs are included so archived work can be resumed without re-reading logs.</p>
+                  </div>
+                </div>
+                <div className="history-list">
+                  {historyResults.sessions.map((session) => (
+                    <div key={session.id} className="history-item">
+                      <div className="row between">
+                        <strong>{session.name}</strong>
+                        <span className={badgeClass(session.status)}>{session.status}</span>
+                      </div>
+                      <p className="muted">{session.target_label || session.repo_path} · {session.profile} · {session.branch || '(no branch)'}</p>
+                      {session.latestHandoff ? (
+                        <>
+                          <p className="muted">{session.latestHandoff.goal_summary}</p>
+                          <pre className="log-output">{session.latestHandoff.resume_brief}</pre>
+                        </>
+                      ) : (
+                        <p className="muted">No handoff generated yet.</p>
+                      )}
+                      <button type="button" className="ghost" onClick={() => setSelectedId(session.id)}>Open session</button>
+                    </div>
+                  ))}
+                  {!historyResults.sessions.length ? <p className="muted">No history results yet.</p> : null}
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -2856,12 +3408,35 @@ export default function App() {
                           <button className="ghost" type="button" onClick={() => setCodexMcpEnabled(server.scope, server.name, server.enabled === false)}>
                             {server.enabled === false ? 'Enable' : 'Disable'}
                           </button>
+                          <button className="ghost" type="button" onClick={() => loadCodexMcpDependencies(server.scope, server.name)}>
+                            Dependencies
+                          </button>
                           <button className="ghost danger-text" type="button" onClick={() => deleteCodexMcpServer(server.scope, server.name)}>
                             Remove
                           </button>
                         </div>
                       </div>
                       <p className="muted">{server.command}{server.args?.length ? ` ${server.args.join(' ')}` : ''}</p>
+                      {mcpDependencies[`${server.scope}:${server.name}`] ? (
+                        <div className="history-list">
+                          <div className="history-item">
+                            <strong>Preset dependencies</strong>
+                            <p className="muted">
+                              {mcpDependencies[`${server.scope}:${server.name}`].presetDependencies?.length
+                                ? mcpDependencies[`${server.scope}:${server.name}`].presetDependencies.map((preset) => `${preset.id} (${preset.source})`).join(', ')
+                                : 'No saved or discovered presets reference this MCP server.'}
+                            </p>
+                          </div>
+                          <div className="history-item">
+                            <strong>Session dependencies</strong>
+                            <p className="muted">
+                              {mcpDependencies[`${server.scope}:${server.name}`].sessionDependencies?.length
+                                ? mcpDependencies[`${server.scope}:${server.name}`].sessionDependencies.map((session) => `${session.name} (${session.status})`).join(', ')
+                                : 'No manager sessions currently fall within this MCP server scope.'}
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                   {!codexMcp.global.length && !codexMcp.workspace.length ? <p className="muted">No MCP servers configured yet.</p> : null}
@@ -3145,7 +3720,7 @@ export default function App() {
                     </p>
                     {configPresets.length ? (
                       <div className="stack-form">
-                        <p className="muted">Manager config presets: {configPresets.map((preset) => preset.id).join(', ')}</p>
+                        <p className="muted">Available presets: {configPresets.map((preset) => preset.id).join(', ')}</p>
                         <div className="command-settings-grid adopt-settings-grid">
                           <label className="field">
                             <span>Config preset</span>
@@ -3155,15 +3730,30 @@ export default function App() {
                               ))}
                             </select>
                           </label>
+                          <label className="field">
+                            <span>Apply mode</span>
+                            <select value={configPresetMode} onChange={(event) => setConfigPresetMode(event.target.value)}>
+                              <option value="overlay">overlay</option>
+                              <option value="replace">replace</option>
+                            </select>
+                          </label>
                           <div className="helper-copy">
                             <span className="field-label">Preset summary</span>
                             <p className="muted">
                               {configPresets.find((preset) => preset.id === selectedConfigPreset)?.description || 'Load a preset into the editor or apply it directly to the selected scope.'}
                             </p>
+                            <p className="muted">
+                              {(() => {
+                                const preset = configPresets.find((item) => item.id === selectedConfigPreset)
+                                if (!preset) return 'Select a preset to inspect its source.'
+                                return `${preset.source} preset · default ${preset.mode} mode`
+                              })()}
+                            </p>
                           </div>
                         </div>
                         <div className="row gap-sm">
                           <button type="button" className="ghost" onClick={() => loadCodexConfigPreset(activeConfigScope)}>Load preset into editor</button>
+                          <button type="button" className="ghost" onClick={() => previewCodexConfigPreset(activeConfigScope)}>Preview preset diff</button>
                           <button
                             type="button"
                             className="ghost"
@@ -3175,6 +3765,120 @@ export default function App() {
                         </div>
                       </div>
                     ) : null}
+                    <div className="stack-form">
+                      <div className="row between history-browser-head">
+                        <div>
+                          <p className="eyebrow">Saved Preset Library</p>
+                          <p className="muted">Create and maintain manager-owned or repo-owned config presets directly from the dashboard.</p>
+                        </div>
+                        <label className="field">
+                          <span>Preset scope</span>
+                          <select value={configPresetForm.scope} onChange={(event) => setConfigPresetForm((current) => ({ ...current, scope: event.target.value }))}>
+                            <option value="user">user</option>
+                            <option value="repo">repo</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className="command-form-grid">
+                        <input placeholder="preset id" value={configPresetForm.presetId} onChange={(event) => setConfigPresetForm((current) => ({ ...current, presetId: event.target.value }))} />
+                        <input placeholder="label" value={configPresetForm.label} onChange={(event) => setConfigPresetForm((current) => ({ ...current, label: event.target.value }))} />
+                      </div>
+                      <div className="command-form-grid">
+                        <input placeholder="description" value={configPresetForm.description} onChange={(event) => setConfigPresetForm((current) => ({ ...current, description: event.target.value }))} />
+                        <select value={configPresetForm.mode} onChange={(event) => setConfigPresetForm((current) => ({ ...current, mode: event.target.value }))}>
+                          <option value="overlay">overlay</option>
+                          <option value="replace">replace</option>
+                        </select>
+                      </div>
+                      <textarea
+                        rows="8"
+                        value={configPresetForm.content}
+                        onChange={(event) => setConfigPresetForm((current) => ({ ...current, content: event.target.value }))}
+                      />
+                      <div className="row gap-sm">
+                        <button type="button" className="ghost" onClick={() => loadCurrentConfigIntoPresetForm(activeConfigScope)}>Load current config</button>
+                        <button type="button" className="primary" onClick={() => saveConfigPresetDraft()}>Save preset</button>
+                      </div>
+                      <div className="history-list">
+                        {(savedConfigPresetLibrary.presets || []).map((preset) => (
+                          <div key={`${preset.source}-${preset.id}`} className="history-item">
+                            <div className="row between">
+                              <strong>{preset.id}</strong>
+                              <span className="badge badge-stopped">{preset.mode}</span>
+                            </div>
+                            <p className="muted">{preset.label || preset.id}</p>
+                            <p className="muted">{preset.description || `${preset.source} preset`}</p>
+                            <div className="row gap-sm">
+                              <button type="button" className="ghost" onClick={() => loadSavedConfigPresetIntoForm(preset)}>Edit</button>
+                              <button type="button" className="ghost" onClick={() => setSelectedConfigPreset(preset.id)}>Select</button>
+                              <button type="button" className="ghost danger-text" onClick={() => deleteConfigPresetDraft(preset)}>Delete</button>
+                            </div>
+                          </div>
+                        ))}
+                        {!savedConfigPresetLibrary.presets?.length ? <p className="muted">No saved presets in this scope yet.</p> : null}
+                      </div>
+                    </div>
+                    {codexConfigs[activeConfigScope].valid === false ? (
+                      <div className="history-item">
+                        <div className="row between">
+                          <strong>Config parse error</strong>
+                          <span className="badge badge-failed">invalid</span>
+                        </div>
+                        <p className="muted">{codexConfigs[activeConfigScope].parseError || 'The current TOML cannot be parsed.'}</p>
+                      </div>
+                    ) : null}
+                    {codexConfigs[activeConfigScope].valid !== false ? (
+                      <div className="stack-form">
+                        <div className="row between history-browser-head">
+                          <div>
+                            <p className="eyebrow">Simple Settings</p>
+                            <p className="muted">Common scalar Codex settings can be edited without touching raw TOML.</p>
+                          </div>
+                          <span className="badge badge-stopped">
+                            {(codexConfigs[activeConfigScope].scalarFields || []).filter((field) => field.common).length} common fields
+                          </span>
+                        </div>
+                        {(codexConfigs[activeConfigScope].scalarFields || []).filter((field) => field.common).length ? (
+                          <div className="command-form-grid">
+                            {(codexConfigs[activeConfigScope].scalarFields || []).filter((field) => field.common).map((field) => (
+                              <label key={field.key} className="field">
+                                <span>{field.key}</span>
+                                <input
+                                  value={field.value ?? ''}
+                                  onChange={(event) => updateCodexConfigScalarField(activeConfigScope, field.key, event.target.value)}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted">No common scalar settings are present yet. Use raw TOML below to add new keys the first time.</p>
+                        )}
+                        <div className="row between history-browser-head">
+                          <div>
+                            <p className="eyebrow">Advanced JSON</p>
+                            <p className="muted">Nested tables such as `agents`, `mcp_servers`, and env blocks can be edited here as JSON.</p>
+                          </div>
+                        </div>
+                        <textarea
+                          rows="8"
+                          value={codexConfigs[activeConfigScope].advancedJson || '{}'}
+                          onChange={(event) => setCodexConfigs((current) => ({
+                            ...current,
+                            [activeConfigScope]: {
+                              ...current[activeConfigScope],
+                              advancedJson: event.target.value
+                            }
+                          }))}
+                        />
+                        <button type="button" className="ghost" onClick={() => saveStructuredCodexConfig(activeConfigScope)}>Save structured config</button>
+                      </div>
+                    ) : null}
+                    <div className="row between history-browser-head">
+                      <div>
+                        <p className="eyebrow">Raw TOML</p>
+                        <p className="muted">Use raw mode for full control, comments, or keys that are not surfaced in the structured editors.</p>
+                      </div>
+                    </div>
                     <textarea
                       rows="10"
                       value={codexConfigs[activeConfigScope].content}
@@ -3794,6 +4498,66 @@ export default function App() {
               </div>
             </div>
           ) : null}
+        </article>
+        <article className="panel execution-card">
+          <h3>Automation Handoff</h3>
+          <p className="muted">Layer 4 resume brief plus deterministic next actions for autonomous follow-up sessions.</p>
+          {selectedSession ? (
+            <>
+              <div className="history-list">
+                {(automation?.recommendations || []).slice(0, 5).map((recommendation) => (
+                  <div key={`${recommendation.action}-${recommendation.label}`} className="history-item">
+                    <div className="row between">
+                      <strong>{recommendation.label}</strong>
+                      <span className="badge badge-running">{recommendation.priority}</span>
+                    </div>
+                    <p className="muted">{recommendation.reason}</p>
+                    <button type="button" className="ghost" onClick={() => handleAutomationAction(recommendation)}>
+                      {recommendation.action.startsWith('spawn_') ? 'Prepare follow-up' : 'Run action'}
+                    </button>
+                  </div>
+                ))}
+                {!(automation?.recommendations || []).length ? <p className="muted">No automation recommendations loaded yet.</p> : null}
+              </div>
+              <div className="stack-form">
+                <textarea
+                  rows="3"
+                  placeholder="Optional human note to include in the next handoff"
+                  value={handoffNotes}
+                  onChange={(event) => setHandoffNotes(event.target.value)}
+                />
+                <div className="row gap-sm">
+                  <button type="button" className="primary" onClick={() => generateHandoff('generated')}>Generate handoff</button>
+                  <button type="button" className="ghost" onClick={() => generateHandoff('resume')}>Resume brief</button>
+                  <button type="button" className="ghost" onClick={() => generateHandoff('archive')}>Archive summary</button>
+                </div>
+              </div>
+              {automation?.resumeBrief ? (
+                <div className="history-item">
+                  <div className="row between">
+                    <strong>Current resume brief</strong>
+                    <span className="badge badge-stopped">{automation.latestHandoff ? automation.latestHandoff.kind : 'draft'}</span>
+                  </div>
+                  <pre className="log-output">{automation.resumeBrief}</pre>
+                </div>
+              ) : null}
+              {handoffs.length ? (
+                <div className="history-list">
+                  {handoffs.map((handoff) => (
+                    <div key={handoff.id} className="history-item">
+                      <div className="row between">
+                        <strong>{handoff.kind} handoff</strong>
+                        <span className="badge badge-stopped">{formatEventTime(handoff.timestamp)}</span>
+                      </div>
+                      <p className="muted">{handoff.goal_summary}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="muted">Select a session to generate handoffs and automation recommendations.</p>
+          )}
         </article>
       </section>
 

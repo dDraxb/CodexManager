@@ -118,6 +118,15 @@ class RunnerClient(Protocol):
     def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
         """Write global or workspace Codex config content and return saved metadata."""
 
+    def write_structured_codex_config(
+        self,
+        scope: str,
+        scalar_fields: dict,
+        advanced_json: str,
+        repo_path: str | None = None,
+    ) -> dict:
+        """Write structured Codex config content assembled from scalar and nested values."""
+
     def restore_codex_config(self, scope: str, backup_path: str, repo_path: str | None = None) -> dict:
         """Restore a Codex config file from a saved backup."""
 
@@ -183,6 +192,9 @@ class RunnerClient(Protocol):
 
     def list_codex_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
         """Return recent Codex thread metadata."""
+
+    def list_imported_codex_sessions(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        """Return rollout-backed Codex session history discovered under CODEX_HOME/sessions."""
 
     def list_resume_candidates(self, thread_id: str | None, cwd: str | None, prompt: str | None, limit: int = 12) -> list[dict]:
         """Return chooser candidates for a session resume flow."""

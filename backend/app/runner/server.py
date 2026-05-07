@@ -54,6 +54,12 @@ class CodexThreadListRequest(BaseModel):
     limit: int = 20
 
 
+class ImportedCodexSessionListRequest(BaseModel):
+    cwd: str | None = None
+    query: str | None = None
+    limit: int = 20
+
+
 class ResumeCandidateRequest(BaseModel):
     thread_id: str | None = None
     cwd: str | None = None
@@ -177,6 +183,13 @@ class CodexConfigReadRequest(BaseModel):
 class CodexConfigWriteRequest(BaseModel):
     scope: str
     content: str
+    repo_path: str | None = None
+
+
+class CodexConfigStructuredWriteRequest(BaseModel):
+    scope: str
+    scalar_fields: dict = {}
+    advanced_json: str = ""
     repo_path: str | None = None
 
 
@@ -569,6 +582,21 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         require_auth(x_runner_api_key)
         return runner_call(lambda: runner.write_codex_config(request.scope, request.content, request.repo_path))
 
+    @app.post("/write-structured-codex-config")
+    def write_structured_codex_config_endpoint(
+        request: CodexConfigStructuredWriteRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(
+            lambda: runner.write_structured_codex_config(
+                request.scope,
+                request.scalar_fields,
+                request.advanced_json,
+                request.repo_path,
+            )
+        )
+
     @app.post("/restore-codex-config")
     def restore_codex_config_endpoint(
         request: CodexConfigRestoreRequest,
@@ -723,6 +751,15 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
     ) -> dict:
         require_auth(x_runner_api_key)
         threads = runner_call(lambda: runner.list_codex_threads(request.cwd, request.query, request.limit))
+        return {"threads": threads}
+
+    @app.post("/codex/list-imported-sessions")
+    def codex_list_imported_sessions(
+        request: ImportedCodexSessionListRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        threads = runner_call(lambda: runner.list_imported_codex_sessions(request.cwd, request.query, request.limit))
         return {"threads": threads}
 
     @app.post("/codex/list-resume-candidates")

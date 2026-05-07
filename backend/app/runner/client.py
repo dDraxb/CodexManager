@@ -15,9 +15,16 @@ from app.services.codex_agent_config import (
     write_codex_agent_config,
 )
 from app.services.codex_agents import CodexAgentError, create_codex_agent, list_codex_agents
-from app.services.codex_config import CodexConfigError, preview_codex_config, read_codex_config, restore_codex_config, write_codex_config
+from app.services.codex_config import (
+    CodexConfigError,
+    preview_codex_config,
+    read_codex_config,
+    restore_codex_config,
+    write_codex_config,
+    write_structured_codex_config,
+)
 from app.services.codex_environment import inspect_codex_environment
-from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_resume_candidates
+from app.services.codex_history import find_recent_codex_session_id, list_codex_threads, list_imported_codex_sessions, list_resume_candidates
 from app.services.codex_mcp import (
     CodexMcpError,
     create_codex_mcp_server,
@@ -319,6 +326,23 @@ class LocalRunnerClient(RunnerClient):
         except CodexConfigError as exc:
             raise RunnerError(str(exc)) from exc
 
+    def write_structured_codex_config(
+        self,
+        scope: str,
+        scalar_fields: dict,
+        advanced_json: str,
+        repo_path: str | None = None,
+    ) -> dict:
+        try:
+            return write_structured_codex_config(
+                scope=scope,
+                scalar_fields=scalar_fields,
+                advanced_json=advanced_json,
+                repo_path=repo_path,
+            )
+        except CodexConfigError as exc:
+            raise RunnerError(str(exc)) from exc
+
     def restore_codex_config(self, scope: str, backup_path: str, repo_path: str | None = None) -> dict:
         try:
             return restore_codex_config(scope=scope, backup_path=backup_path, repo_path=repo_path)
@@ -449,6 +473,31 @@ class LocalRunnerClient(RunnerClient):
                 "rollout_path": item.rollout_path,
             }
             for item in list_codex_threads(cwd=cwd, query=query, limit=limit)
+        ]
+
+    def list_imported_codex_sessions(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        return [
+            {
+                "id": item.id,
+                "cwd": item.cwd,
+                "started_at": item.started_at,
+                "updated_at": item.updated_at,
+                "first_user_message": item.first_user_message,
+                "title": item.title,
+                "rollout_path": item.rollout_path,
+                "event_count": item.event_count,
+                "response_count": item.response_count,
+                "command_count": item.command_count,
+                "last_event_type": item.last_event_type,
+                "cli_version": item.cli_version,
+                "model_provider": item.model_provider,
+                "source": item.source,
+                "originator": item.originator,
+                "manager_session_id": item.manager_session_id,
+                "manager_session_name": item.manager_session_name,
+                "manager_status": item.manager_status,
+            }
+            for item in list_imported_codex_sessions(cwd=cwd, query=query, limit=limit)
         ]
 
     def list_resume_candidates(self, thread_id: str | None, cwd: str | None, prompt: str | None, limit: int = 12) -> list[dict]:
@@ -703,6 +752,23 @@ class RemoteRunnerClient(RunnerClient):
             {"scope": scope, "content": content, "repo_path": repo_path},
         )
 
+    def write_structured_codex_config(
+        self,
+        scope: str,
+        scalar_fields: dict,
+        advanced_json: str,
+        repo_path: str | None = None,
+    ) -> dict:
+        return self._post(
+            "/write-structured-codex-config",
+            {
+                "scope": scope,
+                "scalar_fields": scalar_fields,
+                "advanced_json": advanced_json,
+                "repo_path": repo_path,
+            },
+        )
+
     def restore_codex_config(self, scope: str, backup_path: str, repo_path: str | None = None) -> dict:
         return self._post(
             "/restore-codex-config",
@@ -825,6 +891,17 @@ class RemoteRunnerClient(RunnerClient):
     def list_codex_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
         payload = self._post(
             "/codex/list-threads",
+            {
+                "cwd": cwd,
+                "query": query,
+                "limit": limit,
+            },
+        )
+        return [dict(item) for item in payload["threads"]]
+
+    def list_imported_codex_sessions(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        payload = self._post(
+            "/codex/list-imported-sessions",
             {
                 "cwd": cwd,
                 "query": query,

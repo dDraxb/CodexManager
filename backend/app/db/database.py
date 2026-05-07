@@ -23,6 +23,7 @@ def _connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
@@ -187,13 +188,65 @@ def init_db(force: bool = False) -> None:
             "CREATE INDEX IF NOT EXISTS idx_validation_history_session_time ON validation_history(session_id, timestamp)"
         )
             conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_handoffs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              timestamp TEXT NOT NULL,
+              kind TEXT NOT NULL DEFAULT 'generated' CHECK(kind in ('generated','manual','stop','archive','resume')),
+              goal_summary TEXT NOT NULL DEFAULT '',
+              current_state_summary TEXT NOT NULL DEFAULT '',
+              unresolved_questions TEXT NOT NULL DEFAULT '',
+              validation_state TEXT NOT NULL DEFAULT '',
+              files_touched TEXT NOT NULL DEFAULT '',
+              suggested_next_actions TEXT NOT NULL DEFAULT '',
+              final_disposition TEXT NOT NULL DEFAULT '',
+              human_notes TEXT NOT NULL DEFAULT '',
+              resume_brief TEXT NOT NULL DEFAULT '',
+              automation_recommendations_json TEXT NOT NULL DEFAULT '[]',
+              FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+            """
+        )
+            conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_handoffs_session_time ON session_handoffs(session_id, timestamp)"
+        )
+            conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)"
         )
             conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_tmux_session ON sessions(tmux_session) WHERE tmux_session IS NOT NULL"
         )
             _ensure_session_columns(conn)
+            _ensure_handoff_table(conn)
         _initialized_db_path = DB_PATH
+
+
+def _ensure_handoff_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_handoffs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'generated' CHECK(kind in ('generated','manual','stop','archive','resume')),
+          goal_summary TEXT NOT NULL DEFAULT '',
+          current_state_summary TEXT NOT NULL DEFAULT '',
+          unresolved_questions TEXT NOT NULL DEFAULT '',
+          validation_state TEXT NOT NULL DEFAULT '',
+          files_touched TEXT NOT NULL DEFAULT '',
+          suggested_next_actions TEXT NOT NULL DEFAULT '',
+          final_disposition TEXT NOT NULL DEFAULT '',
+          human_notes TEXT NOT NULL DEFAULT '',
+          resume_brief TEXT NOT NULL DEFAULT '',
+          automation_recommendations_json TEXT NOT NULL DEFAULT '[]',
+          FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_handoffs_session_time ON session_handoffs(session_id, timestamp)"
+    )
 
 
 def _ensure_session_columns(conn: sqlite3.Connection) -> None:

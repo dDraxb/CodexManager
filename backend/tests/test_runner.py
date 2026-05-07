@@ -117,6 +117,32 @@ class RecordingRunner:
         self.calls.append(("delete_codex_skill", scope, name, repo_path))
         return {"scope": scope, "name": name}
 
+    def read_codex_config(self, scope: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("read_codex_config", scope, repo_path))
+        return {"scope": scope, "path": f"{repo_path or '/tmp'}/config.toml", "content": ""}
+
+    def preview_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("preview_codex_config", scope, content, repo_path))
+        return {"scope": scope, "path": f"{repo_path or '/tmp'}/config.toml", "valid": True, "diff": []}
+
+    def write_codex_config(self, scope: str, content: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("write_codex_config", scope, content, repo_path))
+        return {"scope": scope, "path": f"{repo_path or '/tmp'}/config.toml"}
+
+    def write_structured_codex_config(
+        self,
+        scope: str,
+        scalar_fields: dict,
+        advanced_json: str,
+        repo_path: str | None = None,
+    ) -> dict:
+        self.calls.append(("write_structured_codex_config", scope, scalar_fields, advanced_json, repo_path))
+        return {"scope": scope, "path": f"{repo_path or '/tmp'}/config.toml"}
+
+    def restore_codex_config(self, scope: str, backup_path: str, repo_path: str | None = None) -> dict:
+        self.calls.append(("restore_codex_config", scope, backup_path, repo_path))
+        return {"scope": scope, "path": f"{repo_path or '/tmp'}/config.toml", "restoredFrom": backup_path}
+
     def list_installable_codex_skills(
         self,
         scope: str,
@@ -164,6 +190,10 @@ class RecordingRunner:
 
     def list_codex_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
         self.calls.append(("list_codex_threads", cwd, query, limit))
+        return []
+
+    def list_imported_codex_sessions(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        self.calls.append(("list_imported_codex_sessions", cwd, query, limit))
         return []
 
     def list_resume_candidates(self, thread_id: str | None, cwd: str | None, prompt: str | None, limit: int = 12) -> list[dict]:
@@ -287,6 +317,60 @@ def test_local_runner_lists_codex_threads_for_repo_subpaths(configured_modules, 
     threads = runner.list_codex_threads("/repo/service-a", None, limit=10)
 
     assert [thread["id"] for thread in threads] == ["child", "parent"]
+
+
+def test_local_runner_lists_imported_codex_sessions_from_rollouts(configured_modules, tmp_path, monkeypatch):
+    from app.runner.client import LocalRunnerClient
+
+    codex_home = tmp_path / ".codex"
+    session_dir = codex_home / "sessions" / "2026" / "05" / "04"
+    session_dir.mkdir(parents=True)
+    rollout = session_dir / "rollout-2026-05-04T10-00-00-019abc.jsonl"
+    rollout.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-04T10:00:01Z",
+                        "type": "session_meta",
+                        "payload": {
+                            "id": "019abc",
+                            "timestamp": "2026-05-04T10:00:00Z",
+                            "cwd": "/repo/service-a",
+                            "cli_version": "0.125.0",
+                            "model_provider": "openai",
+                            "source": "cli",
+                            "originator": "codex-tui",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-04T10:00:02Z",
+                        "type": "event_msg",
+                        "payload": {"type": "user_message", "message": "Fix VAT rounding"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-04T10:00:03Z",
+                        "type": "response_item",
+                        "payload": {"type": "function_call"},
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    runner = LocalRunnerClient()
+    rows = runner.list_imported_codex_sessions("/repo/service-a", "VAT", limit=10)
+
+    assert rows[0]["id"] == "019abc"
+    assert rows[0]["first_user_message"] == "Fix VAT rounding"
+    assert rows[0]["command_count"] == 1
 
 
 def test_local_runner_can_apply_validation_preset(configured_modules, tmp_path):
