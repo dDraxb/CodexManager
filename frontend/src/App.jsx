@@ -140,6 +140,11 @@ const EMPTY_HISTORY_FILTERS = {
   archived: 'all'
 }
 
+const EMPTY_HISTORY_VIEW_FORM = {
+  label: '',
+  description: ''
+}
+
 const MANAGER_RULES_TEMPLATE = `{
   "version": 1,
   "rules": [
@@ -879,6 +884,8 @@ export default function App() {
   const [historyResults, setHistoryResults] = useState({ sessions: [], count: 0, filters: EMPTY_HISTORY_FILTERS })
   const [historyAnalytics, setHistoryAnalytics] = useState(null)
   const [historyCompare, setHistoryCompare] = useState(null)
+  const [historyViews, setHistoryViews] = useState({ views: [], path: '' })
+  const [historyViewForm, setHistoryViewForm] = useState(EMPTY_HISTORY_VIEW_FORM)
   const [automationQueue, setAutomationQueue] = useState({ items: [], count: 0, totalCandidates: 0 })
   const [resumePoints, setResumePoints] = useState([])
   const [showResumeChooser, setShowResumeChooser] = useState(false)
@@ -1558,6 +1565,60 @@ export default function App() {
     )
     if (!payload) return
     setHistoryAnalytics(payload)
+  }
+
+  async function loadHistoryViews() {
+    const payload = await runRequest(
+      () => fetchJson('/api/history/views'),
+      null
+    )
+    if (!payload) return
+    setHistoryViews(payload)
+  }
+
+  async function saveHistoryView() {
+    const label = historyViewForm.label.trim()
+    if (!label) {
+      notify('error', 'Name the history view first')
+      return
+    }
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/history/views', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            viewId: label,
+            label,
+            description: historyViewForm.description,
+            filters: historyFilters
+          })
+        }),
+      (result) => `Saved history view ${result.view.label}`
+    )
+    if (!payload) return
+    setHistoryViewForm(EMPTY_HISTORY_VIEW_FORM)
+    await loadHistoryViews()
+  }
+
+  async function applyHistoryView(view) {
+    if (!view?.filters) return
+    await loadHistorySearch(view.filters)
+  }
+
+  async function deleteHistoryView(view) {
+    if (!view?.id) return
+    const payload = await runRequest(
+      () =>
+        fetchJson('/api/history/views/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ viewId: view.id })
+        }),
+      (result) => `Deleted history view ${result.view.label}`
+    )
+    if (!payload) return
+    await loadHistoryViews()
   }
 
   async function loadAutomationQueue() {
@@ -2910,6 +2971,7 @@ export default function App() {
     if (commandTab !== 'history' || !showCommandPanel) return
     void loadHistoryAnalytics()
     void loadHistorySearch({ repoPath: historyFilters.repoPath || activeRepoPath })
+    void loadHistoryViews()
     void loadAutomationQueue()
   }, [commandTab, showCommandPanel])
 
@@ -3341,6 +3403,19 @@ export default function App() {
                     <option value="stopped">stopped</option>
                     <option value="lost">lost</option>
                   </select>
+                  <select value={historyFilters.profile} onChange={(event) => setHistoryFilters((current) => ({ ...current, profile: event.target.value }))}>
+                    <option value="">Any profile</option>
+                    <option value="read-only">read-only</option>
+                    <option value="safe-edit">safe-edit</option>
+                    <option value="full-agent">full-agent</option>
+                  </select>
+                  <select value={historyFilters.validationState} onChange={(event) => setHistoryFilters((current) => ({ ...current, validationState: event.target.value }))}>
+                    <option value="">Any validation</option>
+                    <option value="satisfied">satisfied</option>
+                    <option value="required_missing">required_missing</option>
+                    <option value="optional_pending">optional_pending</option>
+                    <option value="unknown">unknown</option>
+                  </select>
                   <select value={historyFilters.archived} onChange={(event) => setHistoryFilters((current) => ({ ...current, archived: event.target.value }))}>
                     <option value="all">Active and archived</option>
                     <option value="false">Active only</option>
@@ -3358,6 +3433,51 @@ export default function App() {
                     Refresh analytics
                   </button>
                 </div>
+              </div>
+
+              <div className="history-browser">
+                <div className="row between history-browser-head">
+                  <div>
+                    <p className="eyebrow">Saved Views</p>
+                    <p className="muted">Store reusable search filters for recurring repo, status, validation, and archive views.</p>
+                  </div>
+                  <span className="badge badge-stopped">{historyViews.views?.length || 0} saved</span>
+                </div>
+                <div className="command-form-grid">
+                  <input
+                    placeholder="View name"
+                    value={historyViewForm.label}
+                    onChange={(event) => setHistoryViewForm((current) => ({ ...current, label: event.target.value }))}
+                  />
+                  <input
+                    placeholder="Optional description"
+                    value={historyViewForm.description}
+                    onChange={(event) => setHistoryViewForm((current) => ({ ...current, description: event.target.value }))}
+                  />
+                </div>
+                <div className="row gap-sm">
+                  <button type="button" className="primary" onClick={() => saveHistoryView()}>Save current filters</button>
+                  <button type="button" className="ghost" onClick={() => loadHistoryViews()}>Refresh saved views</button>
+                </div>
+                {historyViews.views?.length ? (
+                  <div className="history-list">
+                    {historyViews.views.map((view) => (
+                      <div key={view.id} className="history-item">
+                        <div className="row between">
+                          <strong>{view.label}</strong>
+                          <span className="badge badge-idle">{view.filters?.archived || 'all'}</span>
+                        </div>
+                        <p className="muted">{view.description || `${view.filters?.repoPath || 'all repos'} · ${view.filters?.status || 'any status'} · ${view.filters?.validationState || 'any validation'}`}</p>
+                        <div className="row gap-sm">
+                          <button type="button" className="ghost" onClick={() => applyHistoryView(view)}>Apply</button>
+                          <button type="button" className="ghost danger-text" onClick={() => deleteHistoryView(view)}>Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">No saved history views yet.</p>
+                )}
               </div>
 
               <div className="environment-grid">

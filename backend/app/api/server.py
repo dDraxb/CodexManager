@@ -33,6 +33,7 @@ from app.services.manager_rules import (
 from app.services.codex_mcp import describe_codex_mcp_dependencies
 from app.services.handoff import automation_snapshot, create_handoff, list_handoffs
 from app.services.history import compare_repo_sessions, search_session_history, session_analytics
+from app.services.history_views import HistoryViewError, delete_history_view, list_history_views, save_history_view
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -341,6 +342,17 @@ class AutomationSweepRequest(BaseModel):
     include_archived: bool = Field(default=True, alias="includeArchived")
 
 
+class HistoryViewWriteRequest(BaseModel):
+    view_id: str = Field(alias="viewId")
+    label: str
+    description: str = ""
+    filters: dict = Field(default_factory=dict)
+
+
+class HistoryViewDeleteRequest(BaseModel):
+    view_id: str = Field(alias="viewId")
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -469,6 +481,32 @@ def history_analytics() -> dict:
 @app.get("/api/history/compare")
 def history_compare(repo_path: str) -> dict:
     return compare_repo_sessions(repo_path)
+
+
+@app.get("/api/history/views")
+def history_views() -> dict:
+    return list_history_views()
+
+
+@app.post("/api/history/views")
+def history_view_save(request: HistoryViewWriteRequest) -> dict:
+    try:
+        return save_history_view(
+            view_id=request.view_id,
+            label=request.label,
+            description=request.description,
+            filters=request.filters,
+        )
+    except HistoryViewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/history/views/delete")
+def history_view_delete(request: HistoryViewDeleteRequest) -> dict:
+    try:
+        return delete_history_view(request.view_id)
+    except HistoryViewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/automation/queue")

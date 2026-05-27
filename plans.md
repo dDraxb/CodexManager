@@ -433,6 +433,7 @@ Past work is now searchable and useful from the manager dashboard.
 Implemented support includes:
 - searchable session history
 - filtering by repo, profile, status/archive state, and validation state
+- saved history views for reusable repo/status/profile/validation/archive filters
 - archived-session summaries
 - latest handoff visibility in history results
 - global automation queue across historical and live sessions
@@ -450,7 +451,6 @@ Remaining expansion areas:
 - date range filters
 - richer trend views over time
 - full-text event/log search
-- saved history views
 
 This layer is now where the product starts becoming a real engineering insight tool, not just a live dashboard.
 

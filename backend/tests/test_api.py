@@ -135,6 +135,50 @@ def test_api_handoffs_automation_and_history(configured_modules, git_repo):
     assert response.json()["sessions"][0]["id"] == session_id
 
 
+def test_api_saves_and_applies_history_views(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/history/views",
+        json={
+            "viewId": "Repo Failures",
+            "label": "Repo failures",
+            "description": "Failed sessions for this repo.",
+            "filters": {
+                "query": "validation",
+                "repoPath": str(git_repo),
+                "status": "failed",
+                "profile": "safe-edit",
+                "validationState": "required_missing",
+                "archived": "true",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["view"]["id"] == "repo-failures"
+    assert payload["view"]["filters"]["repoPath"] == str(git_repo)
+    assert payload["view"]["filters"]["archived"] == "true"
+
+    response = client.get("/api/history/views")
+    assert response.status_code == 200, response.text
+    views = response.json()
+    assert views["exists"] is True
+    assert views["views"][0]["id"] == "repo-failures"
+    assert configured_modules["home"].joinpath("history-views.json").exists()
+
+    response = client.post("/api/history/views/delete", json={"viewId": "repo-failures"})
+    assert response.status_code == 200, response.text
+    assert response.json()["view"]["label"] == "Repo failures"
+
+    response = client.get("/api/history/views")
+    assert response.status_code == 200, response.text
+    assert response.json()["views"] == []
+
+
 def test_api_executes_automation_action_as_followup_session(configured_modules, git_repo):
     from app.api import server
 

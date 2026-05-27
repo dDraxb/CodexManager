@@ -1,9 +1,18 @@
 # Changelog
 
+## 2026-05-27
+
+### Added
+- Added saved history views with manager-owned persistence, API support, dashboard save/apply/delete controls, and reusable repo/status/profile/validation/archive filters.
+- Added a separate support log for Claude Code support feasibility, including provider-boundary guidance and initial implementation slices.
+
+### Verified
+- `backend/.venv/bin/pytest backend/tests/test_api.py::test_api_saves_and_applies_history_views backend/tests/test_api.py::test_api_handoffs_automation_and_history -q`
+- `npm run build`
+
 ## 2026-05-08
 
 ### Added
-- Added a separate support log for Claude Code support feasibility, including provider-boundary guidance and initial implementation slices.
 - Added opt-in browser desktop notifications for sessions that need attention, wait for input, fail, or become lost.
 - Added a bounded automation sweep API that executes multiple high-priority follow-up actions while respecting queue duplicate suppression.
 - Added dashboard support for running a capped automation sweep from the History automation queue.
