@@ -213,6 +213,28 @@ The V1 foundation already gives us:
 
 V2 should build on that foundation in a clear priority order.
 
+### Cross-provider track - Codex now, Claude Code later
+
+Status: foundation started.
+
+The product is beginning to separate provider-neutral session orchestration from provider-specific execution behavior.
+
+Implemented support includes:
+- persisted `provider` metadata on sessions
+- Codex as the default supported provider
+- a provider registry API that exposes Codex as supported and Claude Code as planned
+- dashboard provider selectors for create/adopt flows
+- explicit rejection of unsupported provider launches before session records are created
+- automation follow-ups inherit their parent provider
+
+The next expansion areas are:
+- Claude Code CLI detection and capability reporting
+- provider-specific launch/resume command builders
+- Claude local history discovery under `~/.claude`
+- provider-specific environment surfaces for config, hooks, agents, MCP, and plugins
+
+This should remain a cross-cutting track rather than being forced into only one V2 layer.
+
 ### V2 Priority 1 - True Codex history resume and adoption
 
 Status: substantially complete.

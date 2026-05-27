@@ -24,6 +24,7 @@ def test_api_start_and_list(configured_modules, git_repo):
         },
     )
     assert response.status_code == 200, response.text
+    assert response.json()["provider"] == "codex"
     assert response.json()["work_phase"] == "planning"
     assert response.json()["work_phase_confidence"] == "low"
     assert response.json()["last_major_phase"] == "planning"
@@ -54,6 +55,33 @@ def test_api_start_and_list(configured_modules, git_repo):
     assert response.status_code == 200
     summary = response.json()
     assert summary["total"] == 1
+
+    response = client.get("/api/providers")
+    assert response.status_code == 200
+    providers = response.json()
+    assert providers["defaultProvider"] == "codex"
+    assert {row["id"]: row["status"] for row in providers["providers"]}["codex"] == "supported"
+    assert {row["id"]: row["status"] for row in providers["providers"]}["claude"] == "planned"
+
+
+def test_api_rejects_unimplemented_provider_for_sessions(configured_modules, git_repo):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/sessions/start",
+        json={
+            "name": "api-claude-planned",
+            "repoPath": str(git_repo),
+            "provider": "claude",
+            "profile": "safe-edit",
+            "launch": False,
+        },
+    )
+    assert response.status_code == 400
+    assert "Claude Code provider is registered" in response.json()["detail"]
 
 
 def test_api_handoffs_automation_and_history(configured_modules, git_repo):

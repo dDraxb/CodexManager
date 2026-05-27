@@ -33,7 +33,7 @@ def _print_session_table(rows: list[dict]) -> None:
         typer.echo("No sessions found.")
         return
 
-    headers = ["name", "status", "mode", "profile", "observability", "repo_path", "updated_at"]
+    headers = ["name", "status", "provider", "mode", "profile", "observability", "repo_path", "updated_at"]
     widths = {h: max(len(h), max(len(str(row.get(h, ""))) for row in rows)) for h in headers}
 
     typer.echo("  ".join(h.ljust(widths[h]) for h in headers))
@@ -46,6 +46,7 @@ def _print_session_table(rows: list[dict]) -> None:
 def start(
     name: str = typer.Option(..., help="Session name"),
     repo: Path | None = typer.Option(None, exists=True, file_okay=False, dir_okay=True, help="Working directory path"),
+    provider: str = typer.Option("codex", help="Execution provider"),
     profile: str = typer.Option("safe-edit", help="Permission profile"),
     prompt: str | None = typer.Option(None, help="Task prompt"),
     approval_policy: str = typer.Option("on-request", help="Approval policy label"),
@@ -59,6 +60,7 @@ def start(
         session = create_managed_session(
             name=name,
             repo_path=str(repo.expanduser().resolve()) if repo is not None else None,
+            provider=provider,
             profile=profile,
             prompt=prompt,
             approval_policy=approval_policy,
@@ -129,6 +131,7 @@ def delete_cmd(name_or_id: str) -> None:
 @app.command()
 def adopt(
     name: str = typer.Option(..., help="Local session name"),
+    provider: str = typer.Option("codex", help="Execution provider"),
     codex_session: str = typer.Option(..., "--codex-session", help="Codex-native session id"),
     repo: Path = typer.Option(..., exists=True, file_okay=False, dir_okay=True, help="Repo path"),
     profile: str = typer.Option("read-only", help="Permission profile"),
@@ -137,6 +140,7 @@ def adopt(
     try:
         session = adopt_session(
             name=name,
+            provider=provider,
             codex_session_id=codex_session,
             repo_path=str(repo.expanduser().resolve()),
             profile=profile,

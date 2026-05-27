@@ -97,7 +97,7 @@ def build_handoff_payload(session: SessionRecord, *, kind: str = "generated", hu
 
     goal_summary = session.prompt or f"{session.name} in {session.target_label or session.repo_path}"
     current_state = (
-        f"{session.status}; phase {_phase_label(session.work_phase)} "
+        f"{session.provider}; {session.status}; phase {_phase_label(session.work_phase)} "
         f"({session.work_phase_confidence or 'low'} confidence); "
         f"health {session.health_label}: {session.health_reason}"
     )

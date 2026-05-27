@@ -34,6 +34,7 @@ from app.services.codex_mcp import describe_codex_mcp_dependencies
 from app.services.handoff import automation_snapshot, create_handoff, list_handoffs
 from app.services.history import compare_repo_sessions, search_session_history, session_analytics
 from app.services.history_views import HistoryViewError, delete_history_view, list_history_views, save_history_view
+from app.services.providers import DEFAULT_PROVIDER, list_providers
 from app.services.repo_policy_rules import list_repo_policies
 from app.services.validation_recipe import list_manager_validation_presets
 from app.services.sessions import (
@@ -108,6 +109,7 @@ def _reconcile_if_stale(force: bool = False, background: bool = False) -> None:
 class StartRequest(BaseModel):
     name: str
     repo_path: str | None = Field(default=None, alias="repoPath")
+    provider: str = DEFAULT_PROVIDER
     profile: str = "safe-edit"
     prompt: str | None = None
     approval_policy: str = Field(default="on-request", alias="approvalPolicy")
@@ -120,6 +122,7 @@ class StartRequest(BaseModel):
 
 class AdoptRequest(BaseModel):
     name: str
+    provider: str = DEFAULT_PROVIDER
     codex_session_id: str = Field(alias="codexSessionId")
     repo_path: str = Field(alias="repoPath")
     profile: str = "read-only"
@@ -378,6 +381,11 @@ def summary() -> dict:
         "counts": counts,
         "needsAttention": len([r for r in rows if r.needs_attention]),
     }
+
+
+@app.get("/api/providers")
+def providers() -> dict:
+    return list_providers()
 
 
 @app.get("/api/sessions")
@@ -1061,6 +1069,8 @@ def codex_resume_points(
 @app.get("/api/sessions/{session_id}/resume-points")
 def session_resume_points(session_id: str, limit: int = 12) -> dict:
     session = _session_or_404(session_id)
+    if session.provider != DEFAULT_PROVIDER:
+        raise HTTPException(status_code=400, detail=f"resume points are not implemented for provider '{session.provider}'")
     client = get_runner_client()
     threads = client.list_resume_candidates(
         session.codex_session_id,
@@ -1077,6 +1087,7 @@ def session_start(request: StartRequest) -> dict:
         session = create_managed_session(
             name=request.name,
             repo_path=request.repo_path,
+            provider=request.provider,
             profile=request.profile,
             prompt=request.prompt,
             approval_policy=request.approval_policy,
@@ -1169,6 +1180,7 @@ def session_adopt(request: AdoptRequest) -> dict:
     try:
         session = adopt_session(
             name=request.name,
+            provider=request.provider,
             codex_session_id=request.codex_session_id,
             repo_path=request.repo_path,
             profile=request.profile,

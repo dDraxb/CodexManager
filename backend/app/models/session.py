@@ -22,6 +22,11 @@ class SessionStatus(StrEnum):
     LOST = "lost"
 
 
+class SessionProvider(StrEnum):
+    CODEX = "codex"
+    CLAUDE = "claude"
+
+
 TERMINAL_STATUSES = {
     SessionStatus.FINISHED.value,
     SessionStatus.FAILED.value,
@@ -85,6 +90,7 @@ class SessionRecord:
     name: str
     mode: str
     status: str
+    provider: str
     codex_session_id: str | None
     codex_rollout_path: str | None
     codex_updated_at: int | None

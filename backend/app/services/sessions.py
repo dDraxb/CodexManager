@@ -17,6 +17,7 @@ from app.models.validation_history import ValidationHistoryRecord
 from app.runner.client import get_runner_client
 from app.runner.contracts import RunnerClient, RunnerError
 from app.services.manager_rules import effective_session_defaults
+from app.services.providers import DEFAULT_PROVIDER, ProviderError, ensure_supported_provider
 from app.services.repo_policy_rules import match_repo_policy, serialize_repo_policy
 
 PROFILES = {"read-only", "safe-edit", "full-agent"}
@@ -142,6 +143,7 @@ def create_managed_session(
     create_worktree_for_writes: bool,
     auto_init_git: bool,
     launch: bool,
+    provider: str = DEFAULT_PROVIDER,
     require_changelog: bool = False,
     manager_defaults_fields: list[str] | None = None,
     parent_session_id: str | None = None,
@@ -152,6 +154,10 @@ def create_managed_session(
     init_db()
     if profile not in PROFILES:
         raise SessionError(f"invalid profile '{profile}'")
+    try:
+        normalized_provider = ensure_supported_provider(provider)
+    except ProviderError as exc:
+        raise SessionError(str(exc)) from exc
 
     client = runner or get_runner_client()
     input_path = repo_path.strip() if isinstance(repo_path, str) else ""
@@ -234,6 +240,7 @@ def create_managed_session(
                 "name": name,
                 "mode": SessionMode.MANAGED.value,
                 "status": SessionStatus.CREATED.value,
+                "provider": normalized_provider,
                 "codex_session_id": None,
                 "codex_rollout_path": None,
                 "codex_updated_at": None,
@@ -350,6 +357,7 @@ def create_managed_session(
         f"Session '{name}' created",
         {
             "require_changelog": require_changelog,
+            "provider": normalized_provider,
             "manager_defaults_fields": [field for field in (manager_defaults_fields or []) if field in selected_manager_defaults],
             "manager_default_rule_ids": [str(rule.get("id")) for rule in applied_manager_rules if rule.get("id")],
         },
@@ -450,11 +458,16 @@ def adopt_session(
     codex_session_id: str,
     repo_path: str,
     profile: str = "read-only",
+    provider: str = DEFAULT_PROVIDER,
     runner: RunnerClient | None = None,
 ) -> SessionRecord:
     init_db()
     if profile not in PROFILES:
         raise SessionError(f"invalid profile '{profile}'")
+    try:
+        normalized_provider = ensure_supported_provider(provider)
+    except ProviderError as exc:
+        raise SessionError(str(exc)) from exc
 
     client = runner or get_runner_client()
     try:
@@ -500,6 +513,7 @@ def adopt_session(
                 "name": name,
                 "mode": SessionMode.ADOPTED.value,
                 "status": SessionStatus.IDLE.value,
+                "provider": normalized_provider,
                 "codex_session_id": codex_session_id,
                 "codex_rollout_path": None,
                 "codex_updated_at": None,
@@ -606,7 +620,7 @@ def adopt_session(
         raise SessionError(f"session name already exists: {name}") from exc
 
     session = SessionRecord.from_row(row)
-    _event(session.id, "session_adopted", f"Session '{name}' adopted", {"codex_session_id": codex_session_id})
+    _event(session.id, "session_adopted", f"Session '{name}' adopted", {"provider": normalized_provider, "codex_session_id": codex_session_id})
     return session
 
 
@@ -650,6 +664,8 @@ def set_codex_session_id(
     session = get_session(name_or_id)
     if session is None:
         raise SessionError(f"session '{name_or_id}' not found")
+    if session.provider != DEFAULT_PROVIDER:
+        raise SessionError(f"history linking is not implemented for provider '{session.provider}'")
     if not codex_session_id.strip():
         raise SessionError("codex session id is required")
 
@@ -689,6 +705,8 @@ def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple
     session = get_session(name_or_id)
     if session is None:
         raise SessionError(f"session '{name_or_id}' not found")
+    if session.provider != DEFAULT_PROVIDER:
+        raise SessionError(f"automatic resume is not implemented for provider '{session.provider}'")
 
     client = runner or get_runner_client()
     if session.tmux_session and client.session_exists(session.tmux_session):

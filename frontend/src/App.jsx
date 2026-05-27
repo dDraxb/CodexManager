@@ -7,6 +7,7 @@ const ARCHIVE_STATUSES = new Set(['finished', 'failed', 'stopped', 'lost'])
 const EMPTY_CREATE_FORM = {
   name: '',
   repoPath: '',
+  provider: 'codex',
   profile: 'safe-edit',
   approvalPolicy: 'on-request',
   prompt: '',
@@ -18,6 +19,7 @@ const EMPTY_CREATE_FORM = {
 
 const EMPTY_ADOPT_FORM = {
   name: '',
+  provider: 'codex',
   codexSessionId: '',
   repoPath: '',
   profile: 'read-only'
@@ -760,6 +762,7 @@ function buildCreatePayload(form, managerDefaultsFields = []) {
   return {
     name: form.name.trim(),
     repoPath: form.repoPath.trim(),
+    provider: form.provider || 'codex',
     profile: form.profile,
     approvalPolicy: form.approvalPolicy,
     prompt: form.prompt.trim() || null,
@@ -774,6 +777,7 @@ function buildCreatePayload(form, managerDefaultsFields = []) {
 function buildAdoptPayload(form) {
   return {
     name: form.name.trim(),
+    provider: form.provider || 'codex',
     codexSessionId: form.codexSessionId.trim(),
     repoPath: form.repoPath.trim(),
     profile: form.profile
@@ -886,6 +890,7 @@ export default function App() {
   const [historyCompare, setHistoryCompare] = useState(null)
   const [historyViews, setHistoryViews] = useState({ views: [], path: '' })
   const [historyViewForm, setHistoryViewForm] = useState(EMPTY_HISTORY_VIEW_FORM)
+  const [providers, setProviders] = useState({ defaultProvider: 'codex', providers: [{ id: 'codex', label: 'Codex', status: 'supported' }] })
   const [automationQueue, setAutomationQueue] = useState({ items: [], count: 0, totalCandidates: 0 })
   const [resumePoints, setResumePoints] = useState([])
   const [showResumeChooser, setShowResumeChooser] = useState(false)
@@ -971,7 +976,7 @@ export default function App() {
   const validationRecipe = parseValidationRecipe(detail?.validation_recipe_json || selectedSession?.validation_recipe_json)
   const canAct = !!selectedSession
   const canAttach = !!selectedSession && !(selectedSession.mode === 'adopted' && !selectedSession.started_at)
-  const canResumeFromHistory = !!selectedSession?.codex_session_id && !canAttach
+  const canResumeFromHistory = selectedSession?.provider === 'codex' && !!selectedSession?.codex_session_id && !canAttach
   const pollIntervalSeconds = Date.now() < fastPollUntil ? 2 : refresh
   const phaseTimeline = useMemo(() => {
     const rawTimeline = events
@@ -1101,15 +1106,17 @@ export default function App() {
   async function loadReferenceData(repoPath = activeRepoPath) {
     try {
       setError('')
-      const [presetPayload, configPresetPayload, repoPolicyPayload] = await Promise.all([
+      const [presetPayload, configPresetPayload, repoPolicyPayload, providerPayload] = await Promise.all([
         fetchJson('/api/validation-presets'),
         fetchJson(repoPath ? `/api/codex-config-presets?repo_path=${encodeURIComponent(repoPath)}` : '/api/codex-config-presets'),
-        fetchJson('/api/repo-policies')
+        fetchJson('/api/repo-policies'),
+        fetchJson('/api/providers')
       ])
       startTransition(() => {
         setValidationPresets(presetPayload.presets || [])
         setConfigPresets(configPresetPayload.presets || [])
         setRepoPolicies(repoPolicyPayload.policies || [])
+        setProviders(providerPayload)
       })
     } catch (err) {
       const message = formatError(err)
@@ -3132,6 +3139,16 @@ export default function App() {
                 <textarea placeholder="Prompt (optional)" rows="3" value={createForm.prompt} onChange={(event) => onCreateField('prompt', event.target.value)} />
                 <div className="command-settings-grid">
                   <label className="field">
+                    <span>Provider</span>
+                    <select value={createForm.provider} onChange={(event) => onCreateField('provider', event.target.value)}>
+                      {(providers.providers || []).map((provider) => (
+                        <option key={provider.id} value={provider.id} disabled={provider.status !== 'supported'}>
+                          {provider.status === 'supported' ? provider.label : `${provider.label} (${provider.status})`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
                     <span>Permissions profile</span>
                     <select value={createForm.profile} onChange={(event) => onCreateField('profile', event.target.value)}>
                       <option value="read-only">read-only</option>
@@ -3244,6 +3261,16 @@ export default function App() {
                 <span className="badge badge-stopped">reduced observability</span>
               </div>
               <form className="stack-form" onSubmit={adoptSession}>
+                <label className="field">
+                  <span>Provider</span>
+                  <select value={adoptForm.provider} onChange={(event) => onAdoptField('provider', event.target.value)}>
+                    {(providers.providers || []).map((provider) => (
+                      <option key={provider.id} value={provider.id} disabled={provider.status !== 'supported'}>
+                        {provider.status === 'supported' ? provider.label : `${provider.label} (${provider.status})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <div className="command-form-grid">
                   <input placeholder="Local session name" value={adoptForm.name} onChange={(event) => onAdoptField('name', event.target.value)} />
                   <input placeholder="Codex session id (cdx_...)" value={adoptForm.codexSessionId} onChange={(event) => onAdoptField('codexSessionId', event.target.value)} />
@@ -3594,7 +3621,7 @@ export default function App() {
                         <strong>{session.name}</strong>
                         <span className={badgeClass(session.status)}>{session.status}</span>
                       </div>
-                      <p className="muted">{session.target_label || session.repo_path} · {session.profile} · {session.branch || '(no branch)'}</p>
+                      <p className="muted">{session.target_label || session.repo_path} · {session.provider || 'codex'} · {session.profile} · {session.branch || '(no branch)'}</p>
                       {session.latestHandoff ? (
                         <>
                           <p className="muted">{session.latestHandoff.goal_summary}</p>
@@ -4598,7 +4625,7 @@ export default function App() {
                     <span className={attachmentBadgeClass(session.attachment_state)}>{session.attachment_state || 'detached'}</span>
                   </div>
                 </div>
-                <p>{session.target_label} · {session.profile}</p>
+                <p>{session.target_label} · {session.provider || 'codex'} · {session.profile}</p>
                 <p className="muted">{session.branch || '(no branch)'} · {session.changed_files_count} changed</p>
                 <p className="muted">
                   {majorPhaseContextLabel(session.status, session.work_phase || 'unknown', session.last_major_phase || 'unknown')}
@@ -4664,6 +4691,10 @@ export default function App() {
                 <div className="overview-item">
                   <span className="overview-label">Changed files</span>
                   <span className="overview-value">{detail?.changed_files_count ?? selectedSession.changed_files_count ?? 0}</span>
+                </div>
+                <div className="overview-item">
+                  <span className="overview-label">Provider</span>
+                  <span className="overview-value">{detail?.provider || selectedSession.provider || 'codex'}</span>
                 </div>
                 <div className="overview-item">
                   <span className="overview-label">Mode</span>
@@ -4746,6 +4777,7 @@ export default function App() {
         <article className="panel execution-card execution-panel">
           <h3>Execution</h3>
           <div className="execution-badges">
+            <span className="badge badge-stopped">{detail?.provider || selectedSession?.provider || 'codex'}</span>
             <span className="badge badge-stopped">{detail?.profile || '-'}</span>
             <span className="badge badge-stopped">{detail?.approval_policy || '-'}</span>
             <span className={attachmentBadgeClass(detail?.attachment_state)}>{detail?.attachment_state || 'detached'}</span>

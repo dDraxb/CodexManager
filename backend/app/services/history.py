@@ -34,6 +34,7 @@ def _matches_query(session: SessionRecord, query: str) -> bool:
         for value in [
             session.id,
             session.name,
+            session.provider,
             session.repo_path,
             session.cwd,
             session.target_label,

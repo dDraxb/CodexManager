@@ -105,6 +105,7 @@ def execute_automation_action(
     spawned = create_managed_session(
         name=_automation_name(parent, action),
         repo_path=parent.repo_path,
+        provider=parent.provider,
         profile=_profile_for_action(parent, action),
         prompt=prompt,
         approval_policy=parent.approval_policy or "on-request",

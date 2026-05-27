@@ -1164,7 +1164,7 @@ def _refresh_repo_baseline(session) -> None:
 
 
 def _refresh_codex_session_link(session, client: RunnerClient) -> None:
-    if session.mode != "managed" or session.codex_session_id or not session.cwd:
+    if session.provider != "codex" or session.mode != "managed" or session.codex_session_id or not session.cwd:
         return
     try:
         codex_session_id = client.find_recent_codex_session(
@@ -1208,7 +1208,7 @@ def _refresh_codex_session_link(session, client: RunnerClient) -> None:
 
 
 def _backfill_codex_history_target(session, client: RunnerClient) -> None:
-    if not session.codex_session_id:
+    if session.provider != "codex" or not session.codex_session_id:
         return
     if session.codex_rollout_path and session.codex_updated_at is not None:
         return
