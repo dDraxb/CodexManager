@@ -3,6 +3,7 @@
 ## 2026-05-08
 
 ### Added
+- Added a separate support log for Claude Code support feasibility, including provider-boundary guidance and initial implementation slices.
 - Added opt-in browser desktop notifications for sessions that need attention, wait for input, fail, or become lost.
 - Added a bounded automation sweep API that executes multiple high-priority follow-up actions while respecting queue duplicate suppression.
 - Added dashboard support for running a capped automation sweep from the History automation queue.
