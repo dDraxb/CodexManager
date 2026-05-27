@@ -22,11 +22,6 @@ class SessionStatus(StrEnum):
     LOST = "lost"
 
 
-class SessionProvider(StrEnum):
-    CODEX = "codex"
-    CLAUDE = "claude"
-
-
 TERMINAL_STATUSES = {
     SessionStatus.FINISHED.value,
     SessionStatus.FAILED.value,

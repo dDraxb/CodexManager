@@ -6,6 +6,10 @@
 - Added a session execution provider foundation with persisted provider metadata, a provider registry API, Codex defaulting, planned Claude Code visibility, and dashboard provider selectors.
 - Added saved history views with manager-owned persistence, API support, dashboard save/apply/delete controls, and reusable repo/status/profile/validation/archive filters.
 - Added a separate support log for Claude Code support feasibility, including provider-boundary guidance and initial implementation slices.
+- Added a provider migration regression test for existing session databases.
+
+### Changed
+- Removed the unused session provider enum so the provider registry remains the single source of truth.
 
 ### Verified
 - `backend/.venv/bin/pytest backend/tests -q`

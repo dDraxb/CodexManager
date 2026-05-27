@@ -16,3 +16,28 @@ def test_database_connections_enable_busy_timeout_and_wal(configured_modules, tm
     assert str(journal_mode).lower() == "wal"
     assert busy_timeout == 30000
     assert synchronous == 1
+
+
+def test_database_migrates_existing_sessions_to_codex_provider(configured_modules, git_repo):
+    from app.services.sessions import create_managed_session, get_session
+
+    session = create_managed_session(
+        name="old-provider-migration",
+        repo_path=str(git_repo),
+        profile="safe-edit",
+        prompt="Check provider migration",
+        approval_policy="on-request",
+        create_worktree_for_writes=False,
+        auto_init_git=False,
+        launch=False,
+    )
+
+    database = configured_modules["database"]
+    with database.get_conn() as conn:
+        conn.execute("ALTER TABLE sessions DROP COLUMN provider")
+
+    database.init_db(force=True)
+
+    migrated = get_session(session.id)
+    assert migrated is not None
+    assert migrated.provider == "codex"
