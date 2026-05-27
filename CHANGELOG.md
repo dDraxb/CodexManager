@@ -7,7 +7,7 @@
 - Added a separate support log for Claude Code support feasibility, including provider-boundary guidance and initial implementation slices.
 
 ### Verified
-- `backend/.venv/bin/pytest backend/tests/test_api.py::test_api_saves_and_applies_history_views backend/tests/test_api.py::test_api_handoffs_automation_and_history -q`
+- `backend/.venv/bin/pytest backend/tests -q`
 - `npm run build`
 
 ## 2026-05-08
