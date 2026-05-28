@@ -50,9 +50,12 @@ Codex can remain the default provider while Claude support is introduced behind 
 The manager now has the first provider boundary:
 
 - sessions persist `provider`, defaulting to `codex`
+- sessions persist provider-neutral external identity fields: `external_session_id`, `external_transcript_path`, and `external_updated_at`
 - existing sessions migrate to `codex`
+- existing Codex history links backfill the neutral external identity fields
 - the API exposes a provider registry with Codex supported and Claude Code planned
 - managed/adopted session creation accepts provider metadata but rejects unsupported providers before creating session records
+- adopted sessions now accept `externalSessionId`, with `codexSessionId` retained as a compatibility alias
 - dashboard create/adopt forms expose the provider selector while keeping unsupported providers disabled
 - automation follow-up sessions inherit their parent provider
 - Codex history linking, resume-point lookup, and automatic resume stay explicitly Codex-only

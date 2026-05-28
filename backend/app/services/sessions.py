@@ -241,6 +241,9 @@ def create_managed_session(
                 "mode": SessionMode.MANAGED.value,
                 "status": SessionStatus.CREATED.value,
                 "provider": normalized_provider,
+                "external_session_id": None,
+                "external_transcript_path": None,
+                "external_updated_at": None,
                 "codex_session_id": None,
                 "codex_rollout_path": None,
                 "codex_updated_at": None,
@@ -455,8 +458,9 @@ def _launch_managed_session_background(**kwargs) -> None:
 def adopt_session(
     *,
     name: str,
-    codex_session_id: str,
     repo_path: str,
+    external_session_id: str | None = None,
+    codex_session_id: str | None = None,
     profile: str = "read-only",
     provider: str = DEFAULT_PROVIDER,
     runner: RunnerClient | None = None,
@@ -468,6 +472,9 @@ def adopt_session(
         normalized_provider = ensure_supported_provider(provider)
     except ProviderError as exc:
         raise SessionError(str(exc)) from exc
+    provider_session_id = (external_session_id or codex_session_id or "").strip()
+    if not provider_session_id:
+        raise SessionError("external session id is required")
 
     client = runner or get_runner_client()
     try:
@@ -514,7 +521,10 @@ def adopt_session(
                 "mode": SessionMode.ADOPTED.value,
                 "status": SessionStatus.IDLE.value,
                 "provider": normalized_provider,
-                "codex_session_id": codex_session_id,
+                "external_session_id": provider_session_id,
+                "external_transcript_path": None,
+                "external_updated_at": None,
+                "codex_session_id": provider_session_id if normalized_provider == DEFAULT_PROVIDER else None,
                 "codex_rollout_path": None,
                 "codex_updated_at": None,
                 "repo_path": repo,
@@ -620,7 +630,12 @@ def adopt_session(
         raise SessionError(f"session name already exists: {name}") from exc
 
     session = SessionRecord.from_row(row)
-    _event(session.id, "session_adopted", f"Session '{name}' adopted", {"provider": normalized_provider, "codex_session_id": codex_session_id})
+    _event(
+        session.id,
+        "session_adopted",
+        f"Session '{name}' adopted",
+        {"provider": normalized_provider, "external_session_id": provider_session_id},
+    )
     return session
 
 
@@ -654,6 +669,60 @@ def open_session(name_or_id: str, runner: RunnerClient | None = None) -> str:
     return client.attach_command(session.tmux_session)
 
 
+def set_external_session_identity(
+    name_or_id: str,
+    external_session_id: str,
+    *,
+    external_transcript_path: str | None = None,
+    external_updated_at: int | None = None,
+) -> SessionRecord:
+    session = get_session(name_or_id)
+    if session is None:
+        raise SessionError(f"session '{name_or_id}' not found")
+    if not external_session_id.strip():
+        raise SessionError("external session id is required")
+
+    normalized_external_id = external_session_id.strip()
+    codex_session_id = normalized_external_id if session.provider == DEFAULT_PROVIDER else session.codex_session_id
+    codex_rollout_path = external_transcript_path if session.provider == DEFAULT_PROVIDER else session.codex_rollout_path
+    codex_updated_at = external_updated_at if session.provider == DEFAULT_PROVIDER else session.codex_updated_at
+
+    now = _now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET external_session_id = ?, external_transcript_path = ?, external_updated_at = ?,
+                codex_session_id = ?, codex_rollout_path = ?, codex_updated_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                normalized_external_id,
+                external_transcript_path,
+                external_updated_at,
+                codex_session_id,
+                codex_rollout_path,
+                codex_updated_at,
+                now,
+                session.id,
+            ),
+        )
+        row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
+    _event(
+        session.id,
+        "external_session_linked",
+        "External session target updated",
+        {
+            "provider": session.provider,
+            "external_session_id": normalized_external_id,
+            "external_transcript_path": external_transcript_path,
+            "external_updated_at": external_updated_at,
+            "source": "manual",
+        },
+    )
+    return SessionRecord.from_row(row)
+
+
 def set_codex_session_id(
     name_or_id: str,
     codex_session_id: str,
@@ -666,39 +735,19 @@ def set_codex_session_id(
         raise SessionError(f"session '{name_or_id}' not found")
     if session.provider != DEFAULT_PROVIDER:
         raise SessionError(f"history linking is not implemented for provider '{session.provider}'")
-    if not codex_session_id.strip():
-        raise SessionError("codex session id is required")
-
-    now = _now_iso()
-    with get_conn() as conn:
-        conn.execute(
-            """
-            UPDATE sessions
-            SET codex_session_id = ?, codex_rollout_path = ?, codex_updated_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (codex_session_id.strip(), codex_rollout_path, codex_updated_at, now, session.id),
-        )
-        row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session.id,)).fetchone()
-    _event(
+    return set_external_session_identity(
         session.id,
-        "codex_session_linked",
-        "Codex history target updated",
-        {
-            "codex_session_id": codex_session_id.strip(),
-            "codex_rollout_path": codex_rollout_path,
-            "codex_updated_at": codex_updated_at,
-            "source": "manual",
-        },
+        codex_session_id,
+        external_transcript_path=codex_rollout_path,
+        external_updated_at=codex_updated_at,
     )
-    return SessionRecord.from_row(row)
 
 
 def _build_history_resume_command(session: SessionRecord, client: RunnerClient) -> str:
     launch_cmd = client.build_codex_launch_command(session.profile, None)
     if not launch_cmd.startswith("codex "):
         return "printf 'codex not found on PATH. Attach and continue manually.\\n'; sleep 86400"
-    return f"{launch_cmd} resume {session.codex_session_id}"
+    return f"{launch_cmd} resume {session.external_session_id or session.codex_session_id}"
 
 
 def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple[SessionRecord, str]:
@@ -724,7 +773,7 @@ def resume_session(name_or_id: str, runner: RunnerClient | None = None) -> tuple
         _event(session.id, "session_resumed", "Reattached to existing tmux session")
         return session, cmd
 
-    if session.codex_session_id and session.tmux_session:
+    if (session.external_session_id or session.codex_session_id) and session.tmux_session:
         launch_cmd = _build_history_resume_command(session, client)
         try:
             client.create_session(session.tmux_session, session.cwd or session.repo_path, session.log_path, launch_cmd)

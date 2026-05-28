@@ -630,6 +630,7 @@ def test_resume_adopted_session_persists_started_at_and_pid(configured_modules, 
     assert refreshed.started_at is not None
     assert refreshed.pid == 4321
     assert refreshed.codex_rollout_path is None
+    assert refreshed.external_session_id == "cdx_123"
 
 
 def test_resume_managed_session_can_fall_back_to_codex_history(configured_modules, git_repo):
@@ -663,6 +664,7 @@ def test_resume_managed_session_can_fall_back_to_codex_history(configured_module
     assert refreshed is not None
     assert refreshed.started_at is not None
     assert refreshed.pid == 4321
+    assert refreshed.external_session_id == "019ce115-d070-7053-b385-870d5e021ea7"
     assert any(
         call[0] == "create_session"
         and call[4] == "codex --profile safe-edit resume 019ce115-d070-7053-b385-870d5e021ea7"
@@ -1072,6 +1074,9 @@ def test_reconcile_once_links_managed_session_to_codex_history(configured_module
     refreshed = get_session(session.id)
 
     assert refreshed is not None
+    assert refreshed.external_session_id == "019ce115-d070-7053-b385-870d5e021ea7"
+    assert refreshed.external_transcript_path == "/tmp/rollout.jsonl"
+    assert refreshed.external_updated_at == 2
     assert refreshed.codex_session_id == "019ce115-d070-7053-b385-870d5e021ea7"
     assert refreshed.codex_rollout_path == "/tmp/rollout.jsonl"
     assert refreshed.codex_updated_at == 2
@@ -1107,6 +1112,9 @@ def test_reconcile_once_backfills_codex_history_metadata_for_existing_session(co
     refreshed = get_session(session.id)
 
     assert refreshed is not None
+    assert refreshed.external_session_id == "019ce115-d070-7053-b385-870d5e021ea7"
+    assert refreshed.external_transcript_path == "/tmp/rollout.jsonl"
+    assert refreshed.external_updated_at == 2
     assert refreshed.codex_rollout_path == "/tmp/rollout.jsonl"
     assert refreshed.codex_updated_at == 2
 

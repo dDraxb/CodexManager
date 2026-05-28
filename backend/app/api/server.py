@@ -51,6 +51,7 @@ from app.services.sessions import (
     list_validation_history,
     open_session,
     resume_session,
+    set_external_session_identity,
     set_codex_session_id,
     stop_session,
 )
@@ -123,9 +124,16 @@ class StartRequest(BaseModel):
 class AdoptRequest(BaseModel):
     name: str
     provider: str = DEFAULT_PROVIDER
-    codex_session_id: str = Field(alias="codexSessionId")
+    external_session_id: str | None = Field(default=None, alias="externalSessionId")
+    codex_session_id: str | None = Field(default=None, alias="codexSessionId")
     repo_path: str = Field(alias="repoPath")
     profile: str = "read-only"
+
+
+class ExternalSessionLinkRequest(BaseModel):
+    external_session_id: str = Field(alias="externalSessionId")
+    external_transcript_path: str | None = Field(default=None, alias="externalTranscriptPath")
+    external_updated_at: int | None = Field(default=None, alias="externalUpdatedAt")
 
 
 class CodexSessionLinkRequest(BaseModel):
@@ -1073,7 +1081,7 @@ def session_resume_points(session_id: str, limit: int = 12) -> dict:
         raise HTTPException(status_code=400, detail=f"resume points are not implemented for provider '{session.provider}'")
     client = get_runner_client()
     threads = client.list_resume_candidates(
-        session.codex_session_id,
+        session.external_session_id or session.codex_session_id,
         session.cwd,
         session.prompt,
         limit=limit,
@@ -1175,12 +1183,27 @@ def session_codex_session_link(session_id: str, request: CodexSessionLinkRequest
     return asdict(session)
 
 
+@app.post("/api/sessions/{session_id}/external-session-link")
+def session_external_session_link(session_id: str, request: ExternalSessionLinkRequest) -> dict:
+    try:
+        session = set_external_session_identity(
+            session_id,
+            request.external_session_id,
+            external_transcript_path=request.external_transcript_path,
+            external_updated_at=request.external_updated_at,
+        )
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return asdict(session)
+
+
 @app.post("/api/sessions/adopt")
 def session_adopt(request: AdoptRequest) -> dict:
     try:
         session = adopt_session(
             name=request.name,
             provider=request.provider,
+            external_session_id=request.external_session_id,
             codex_session_id=request.codex_session_id,
             repo_path=request.repo_path,
             profile=request.profile,

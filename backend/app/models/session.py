@@ -86,6 +86,9 @@ class SessionRecord:
     mode: str
     status: str
     provider: str
+    external_session_id: str | None
+    external_transcript_path: str | None
+    external_updated_at: int | None
     codex_session_id: str | None
     codex_rollout_path: str | None
     codex_updated_at: int | None

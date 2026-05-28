@@ -20,7 +20,7 @@ const EMPTY_CREATE_FORM = {
 const EMPTY_ADOPT_FORM = {
   name: '',
   provider: 'codex',
-  codexSessionId: '',
+  externalSessionId: '',
   repoPath: '',
   profile: 'read-only'
 }
@@ -778,7 +778,7 @@ function buildAdoptPayload(form) {
   return {
     name: form.name.trim(),
     provider: form.provider || 'codex',
-    codexSessionId: form.codexSessionId.trim(),
+    externalSessionId: form.externalSessionId.trim(),
     repoPath: form.repoPath.trim(),
     profile: form.profile
   }
@@ -976,7 +976,7 @@ export default function App() {
   const validationRecipe = parseValidationRecipe(detail?.validation_recipe_json || selectedSession?.validation_recipe_json)
   const canAct = !!selectedSession
   const canAttach = !!selectedSession && !(selectedSession.mode === 'adopted' && !selectedSession.started_at)
-  const canResumeFromHistory = selectedSession?.provider === 'codex' && !!selectedSession?.codex_session_id && !canAttach
+  const canResumeFromHistory = selectedSession?.provider === 'codex' && !!(selectedSession?.external_session_id || selectedSession?.codex_session_id) && !canAttach
   const pollIntervalSeconds = Date.now() < fastPollUntil ? 2 : refresh
   const phaseTimeline = useMemo(() => {
     const rawTimeline = events
@@ -1723,7 +1723,7 @@ export default function App() {
     setLoadingHistory(true)
     try {
       const trimmedQuery = query.trim()
-      const threadId = adoptForm.codexSessionId.trim()
+      const threadId = adoptForm.externalSessionId.trim()
       const repoPath = adoptForm.repoPath.trim()
       const url = threadId
         ? `/api/codex/resume-points?limit=12&thread_id=${encodeURIComponent(threadId)}&cwd=${encodeURIComponent(repoPath)}&prompt=${encodeURIComponent(trimmedQuery)}`
@@ -1776,13 +1776,13 @@ export default function App() {
     if (!selectedSession) return
     const payload = await runRequest(
       () =>
-        fetchJson(`/api/sessions/${selectedSession.id}/codex-session-link`, {
+        fetchJson(`/api/sessions/${selectedSession.id}/external-session-link`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            codexSessionId: thread.id,
-            codexRolloutPath: thread.rollout_path || null,
-            codexUpdatedAt: thread.updated_at || null
+            externalSessionId: thread.id,
+            externalTranscriptPath: thread.rollout_path || null,
+            externalUpdatedAt: thread.updated_at || null
           })
         }),
       () => `Resume target updated to ${thread.id}`
@@ -1797,7 +1797,7 @@ export default function App() {
     setCommandTab('adopt')
     setAdoptForm((prev) => ({
       ...prev,
-      codexSessionId: thread.id,
+      externalSessionId: thread.id,
       repoPath: thread.cwd || prev.repoPath,
       name: prev.name || (thread.title || `imported-${thread.id.slice(0, 8)}`).slice(0, 60)
     }))
@@ -1907,8 +1907,8 @@ export default function App() {
   async function adoptSession(event) {
     event.preventDefault()
     const payload = buildAdoptPayload(adoptForm)
-    if (!payload.name || !payload.codexSessionId || !payload.repoPath) {
-      notify('error', 'Name, Codex session id, and repo path are required')
+    if (!payload.name || !payload.externalSessionId || !payload.repoPath) {
+      notify('error', 'Name, Provider session id, and repo path are required')
       return
     }
 
@@ -3273,7 +3273,7 @@ export default function App() {
                 </label>
                 <div className="command-form-grid">
                   <input placeholder="Local session name" value={adoptForm.name} onChange={(event) => onAdoptField('name', event.target.value)} />
-                  <input placeholder="Codex session id (cdx_...)" value={adoptForm.codexSessionId} onChange={(event) => onAdoptField('codexSessionId', event.target.value)} />
+                  <input placeholder="Provider session id (cdx_...)" value={adoptForm.externalSessionId} onChange={(event) => onAdoptField('externalSessionId', event.target.value)} />
                 </div>
                 <input placeholder="Repo path (absolute)" value={adoptForm.repoPath} onChange={(event) => onAdoptField('repoPath', event.target.value)} />
                 <div className="command-settings-grid adopt-settings-grid">
@@ -3287,7 +3287,7 @@ export default function App() {
                   </label>
                   <div className="helper-copy">
                     <span className="field-label">What to provide</span>
-                    <p className="muted">Use the existing Codex session id and the repo path where that work actually lives on the runner host.</p>
+                    <p className="muted">Use the existing Provider session id and the repo path where that work actually lives on the runner host.</p>
                     {matchedAdoptPolicy ? (
                       <div className="policy-hint">
                         <p><strong>Matched repo policy:</strong> {matchedAdoptPolicy.label}</p>
@@ -3325,11 +3325,11 @@ export default function App() {
                   <div>
                     <p className="eyebrow">Recent Codex History</p>
                     <p className="muted">
-                      {adoptForm.codexSessionId.trim()
-                        ? 'Showing candidates for the filled Codex session id, newest first.'
+                      {adoptForm.externalSessionId.trim()
+                        ? 'Showing candidates for the filled Provider session id, newest first.'
                         : adoptForm.repoPath.trim()
-                          ? 'Showing recent Codex threads for the filled repo path, newest first.'
-                          : 'Showing global recent Codex threads. Fill repo path or session id to narrow it down.'}
+                          ? 'Showing recent provider threads for the filled repo path, newest first.'
+                          : 'Showing global recent provider threads. Fill repo path or session id to narrow it down.'}
                     </p>
                   </div>
                   <button className="ghost" type="button" onClick={() => loadCodexHistory('')}>Load recent</button>
@@ -4798,19 +4798,19 @@ export default function App() {
                 </div>
               </div>
               <div className="execution-section">
-                <p className="execution-section-title">Codex History Target</p>
+                <p className="execution-section-title">Provider History Target</p>
                 <div className="execution-grid">
                   <div className="execution-item execution-item-wide">
-                    <span className="execution-label">Codex session</span>
-                    <span className="execution-value execution-code">{detail?.codex_session_id || 'pending capture'}</span>
+                    <span className="execution-label">Provider session</span>
+                    <span className="execution-value execution-code">{detail?.external_session_id || detail?.codex_session_id || 'pending capture'}</span>
                   </div>
                   <div className="execution-item execution-item-wide">
                     <span className="execution-label">History file</span>
-                    <span className="execution-value execution-code">{detail?.codex_rollout_path || 'not linked yet'}</span>
+                    <span className="execution-value execution-code">{detail?.external_transcript_path || detail?.codex_rollout_path || 'not linked yet'}</span>
                   </div>
                   <div className="execution-item">
                     <span className="execution-label">History updated</span>
-                    <span className="execution-value">{detail?.codex_updated_at ? formatCodexTimestamp(detail.codex_updated_at) : 'unknown'}</span>
+                    <span className="execution-value">{detail?.external_updated_at || detail?.codex_updated_at ? formatCodexTimestamp(detail.external_updated_at || detail.codex_updated_at) : 'unknown'}</span>
                   </div>
                   <div className="execution-item">
                     <span className="execution-label">Changelog discipline</span>
@@ -4842,7 +4842,7 @@ export default function App() {
               <div className="row between history-browser-head">
                 <div>
                   <p className="eyebrow">Resume Points</p>
-                  <p className="muted">Choose the exact Codex thread to resume with `{selectedSession?.name}`.</p>
+                  <p className="muted">Choose the exact provider thread to resume with `{selectedSession?.name}`.</p>
                 </div>
                 <button className="ghost" type="button" onClick={() => setShowResumeChooser(false)}>Close</button>
               </div>
@@ -4851,8 +4851,8 @@ export default function App() {
                   <div key={thread.id} className="history-item">
                     <div className="row between">
                       <strong>{thread.title || thread.first_user_message || thread.id}</strong>
-                      <span className={`badge ${detail?.codex_session_id === thread.id ? 'badge-running' : 'badge-stopped'}`}>
-                        {detail?.codex_session_id === thread.id ? 'selected' : formatCodexTimestamp(thread.updated_at)}
+                      <span className={`badge ${(detail?.external_session_id || detail?.codex_session_id) === thread.id ? 'badge-running' : 'badge-stopped'}`}>
+                        {(detail?.external_session_id || detail?.codex_session_id) === thread.id ? 'selected' : formatCodexTimestamp(thread.updated_at)}
                       </span>
                     </div>
                     <p className="muted">{thread.id}</p>

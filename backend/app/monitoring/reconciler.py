@@ -409,10 +409,20 @@ def _record_codex_history_target(
         conn.execute(
             """
             UPDATE sessions
-            SET codex_session_id = ?, codex_rollout_path = ?, codex_updated_at = ?, updated_at = ?
+            SET external_session_id = ?, external_transcript_path = ?, external_updated_at = ?,
+                codex_session_id = ?, codex_rollout_path = ?, codex_updated_at = ?, updated_at = ?
             WHERE id = ?
             """,
-            (codex_session_id, codex_rollout_path, codex_updated_at, timestamp, session_id),
+            (
+                codex_session_id,
+                codex_rollout_path,
+                codex_updated_at,
+                codex_session_id,
+                codex_rollout_path,
+                codex_updated_at,
+                timestamp,
+                session_id,
+            ),
         )
 
 
@@ -1164,7 +1174,7 @@ def _refresh_repo_baseline(session) -> None:
 
 
 def _refresh_codex_session_link(session, client: RunnerClient) -> None:
-    if session.provider != "codex" or session.mode != "managed" or session.codex_session_id or not session.cwd:
+    if session.provider != "codex" or session.mode != "managed" or session.external_session_id or session.codex_session_id or not session.cwd:
         return
     try:
         codex_session_id = client.find_recent_codex_session(
@@ -1202,23 +1212,27 @@ def _refresh_codex_session_link(session, client: RunnerClient) -> None:
         },
     )
     session.codex_session_id = codex_session_id
+    session.external_session_id = codex_session_id
     if thread:
         session.codex_rollout_path = str(thread.get("rollout_path")) if thread.get("rollout_path") else None
         session.codex_updated_at = int(thread.get("updated_at")) if thread.get("updated_at") is not None else None
+        session.external_transcript_path = session.codex_rollout_path
+        session.external_updated_at = session.codex_updated_at
 
 
 def _backfill_codex_history_target(session, client: RunnerClient) -> None:
-    if session.provider != "codex" or not session.codex_session_id:
+    codex_session_id = session.external_session_id or session.codex_session_id
+    if session.provider != "codex" or not codex_session_id:
         return
-    if session.codex_rollout_path and session.codex_updated_at is not None:
+    if session.external_transcript_path and session.external_updated_at is not None:
         return
 
     try:
         thread = next(
             (
                 item
-                for item in client.list_resume_candidates(session.codex_session_id, session.cwd, session.prompt, limit=1)
-                if item.get("id") == session.codex_session_id
+                for item in client.list_resume_candidates(codex_session_id, session.cwd, session.prompt, limit=1)
+                if item.get("id") == codex_session_id
             ),
             None,
         )
@@ -1229,20 +1243,25 @@ def _backfill_codex_history_target(session, client: RunnerClient) -> None:
 
     rollout_path = str(thread.get("rollout_path")) if thread.get("rollout_path") else None
     updated_at = int(thread.get("updated_at")) if thread.get("updated_at") is not None else None
-    if rollout_path == session.codex_rollout_path and updated_at == session.codex_updated_at:
+    if rollout_path == session.external_transcript_path and updated_at == session.external_updated_at:
         return
 
-    _record_codex_history_target(session.id, session.codex_session_id, rollout_path, updated_at)
+    _record_codex_history_target(session.id, codex_session_id, rollout_path, updated_at)
     _event(
         session.id,
         "codex_history_backfilled",
         "Codex history target metadata backfilled",
         {
-            "codex_session_id": session.codex_session_id,
+            "codex_session_id": codex_session_id,
+            "external_session_id": codex_session_id,
             "codex_rollout_path": rollout_path,
             "codex_updated_at": updated_at,
         },
     )
+    session.external_session_id = codex_session_id
+    session.external_transcript_path = rollout_path
+    session.external_updated_at = updated_at
+    session.codex_session_id = codex_session_id
     session.codex_rollout_path = rollout_path
     session.codex_updated_at = updated_at
 

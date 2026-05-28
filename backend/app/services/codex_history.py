@@ -160,9 +160,10 @@ def _manager_session_link_map() -> dict[str, dict[str, str]]:
 
     links: dict[str, dict[str, str]] = {}
     for session in list_sessions():
-        if not session.codex_session_id:
+        session_id = session.external_session_id or session.codex_session_id
+        if not session_id:
             continue
-        links[session.codex_session_id] = {
+        links[session_id] = {
             "id": session.id,
             "name": session.name,
             "status": session.status,

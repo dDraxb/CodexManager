@@ -1898,7 +1898,7 @@ def test_api_delete_adopted_session_remains_deleted_after_summary(configured_mod
         "/api/sessions/adopt",
         json={
             "name": "delete-adopted",
-            "codexSessionId": "019ce115-d070-7053-b385-870d5e021ea7",
+            "externalSessionId": "019ce115-d070-7053-b385-870d5e021ea7",
             "repoPath": str(git_repo),
             "profile": "read-only",
         },
@@ -1992,7 +1992,7 @@ def test_api_open_adopted_session_requires_resume_first(configured_modules, git_
         "/api/sessions/adopt",
         json={
             "name": "api-adopted",
-            "codexSessionId": "cdx_123",
+            "externalSessionId": "cdx_123",
             "repoPath": str(git_repo),
             "profile": "read-only",
         },
@@ -2337,9 +2337,26 @@ def test_api_can_update_codex_session_link(configured_modules, git_repo):
     )
 
     assert response.status_code == 200
+    assert response.json()["external_session_id"] == "019ce115-d070-7053-b385-870d5e021ea7"
+    assert response.json()["external_transcript_path"] == "/tmp/rollout.jsonl"
+    assert response.json()["external_updated_at"] == 2
     assert response.json()["codex_session_id"] == "019ce115-d070-7053-b385-870d5e021ea7"
     assert response.json()["codex_rollout_path"] == "/tmp/rollout.jsonl"
     assert response.json()["codex_updated_at"] == 2
+
+    response = client.post(
+        f"/api/sessions/{session_id}/external-session-link",
+        json={
+            "externalSessionId": "019ce115-d070-7053-b385-870d5e021ea8",
+            "externalTranscriptPath": "/tmp/new-rollout.jsonl",
+            "externalUpdatedAt": 3,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["external_session_id"] == "019ce115-d070-7053-b385-870d5e021ea8"
+    assert response.json()["external_transcript_path"] == "/tmp/new-rollout.jsonl"
+    assert response.json()["external_updated_at"] == 3
+    assert response.json()["codex_session_id"] == "019ce115-d070-7053-b385-870d5e021ea8"
 
 
 def test_api_lists_validation_history(configured_modules, git_repo):

@@ -132,7 +132,7 @@ def delete_cmd(name_or_id: str) -> None:
 def adopt(
     name: str = typer.Option(..., help="Local session name"),
     provider: str = typer.Option("codex", help="Execution provider"),
-    codex_session: str = typer.Option(..., "--codex-session", help="Codex-native session id"),
+    external_session: str = typer.Option(..., "--external-session", "--codex-session", help="Provider-native external session id"),
     repo: Path = typer.Option(..., exists=True, file_okay=False, dir_okay=True, help="Repo path"),
     profile: str = typer.Option("read-only", help="Permission profile"),
 ) -> None:
@@ -141,7 +141,7 @@ def adopt(
         session = adopt_session(
             name=name,
             provider=provider,
-            codex_session_id=codex_session,
+            external_session_id=external_session,
             repo_path=str(repo.expanduser().resolve()),
             profile=profile,
         )

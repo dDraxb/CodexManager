@@ -34,6 +34,17 @@ def test_database_migrates_existing_sessions_to_codex_provider(configured_module
 
     database = configured_modules["database"]
     with database.get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET codex_session_id = ?, codex_rollout_path = ?, codex_updated_at = ?
+            WHERE id = ?
+            """,
+            ("cdx_old", "/tmp/old-rollout.jsonl", 123, session.id),
+        )
+        conn.execute("ALTER TABLE sessions DROP COLUMN external_session_id")
+        conn.execute("ALTER TABLE sessions DROP COLUMN external_transcript_path")
+        conn.execute("ALTER TABLE sessions DROP COLUMN external_updated_at")
         conn.execute("ALTER TABLE sessions DROP COLUMN provider")
 
     database.init_db(force=True)
@@ -41,3 +52,6 @@ def test_database_migrates_existing_sessions_to_codex_provider(configured_module
     migrated = get_session(session.id)
     assert migrated is not None
     assert migrated.provider == "codex"
+    assert migrated.external_session_id == "cdx_old"
+    assert migrated.external_transcript_path == "/tmp/old-rollout.jsonl"
+    assert migrated.external_updated_at == 123

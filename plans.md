@@ -221,9 +221,12 @@ The product is beginning to separate provider-neutral session orchestration from
 
 Implemented support includes:
 - persisted `provider` metadata on sessions
+- provider-neutral external identity fields for adopted/resumable provider sessions
+- compatibility mirroring from Codex history fields into external identity fields
 - Codex as the default supported provider
 - a provider registry API that exposes Codex as supported and Claude Code as planned
 - dashboard provider selectors for create/adopt flows
+- provider-neutral create/adopt and execution-copy for external session identity
 - explicit rejection of unsupported provider launches before session records are created
 - automation follow-ups inherit their parent provider
 
