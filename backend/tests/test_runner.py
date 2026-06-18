@@ -62,6 +62,18 @@ class RecordingRunner:
         self.calls.append(("build_codex_launch_command", profile, prompt))
         return "codex --profile safe-edit"
 
+    def inspect_claude_environment(self) -> dict:
+        self.calls.append(("inspect_claude_environment",))
+        return {"provider": "claude", "available": True, "version": "1.2.3"}
+
+    def build_claude_launch_command(self, profile: str, prompt: str | None) -> str:
+        self.calls.append(("build_claude_launch_command", profile, prompt))
+        return "claude --permission-mode default"
+
+    def list_claude_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        self.calls.append(("list_claude_threads", cwd, query, limit))
+        return []
+
     def ensure_git_repo(self, repo_path: str, auto_init: bool = False) -> None:
         self.calls.append(("ensure_git_repo", repo_path, auto_init))
 
@@ -1324,6 +1336,60 @@ def test_local_runner_maps_manager_profiles_to_codex_flags(configured_modules):
     assert runner.build_codex_launch_command("safe-edit", None) == "codex --no-alt-screen -s workspace-write -a on-request"
 
 
+def test_local_runner_maps_manager_profiles_to_claude_permission_modes(configured_modules):
+    from app.runner.client import LocalRunnerClient
+
+    runner = LocalRunnerClient()
+
+    assert runner.build_claude_launch_command("read-only", None) == "claude --permission-mode plan"
+    assert runner.build_claude_launch_command("safe-edit", "Fix VAT") == "claude --permission-mode default 'Fix VAT'"
+    assert runner.build_claude_launch_command("full-agent", None) == "claude --permission-mode acceptEdits"
+
+
+def test_local_runner_lists_claude_threads_from_project_transcripts(configured_modules, tmp_path, monkeypatch):
+    from app.runner.client import LocalRunnerClient
+
+    claude_home = tmp_path / ".claude"
+    project_dir = claude_home / "projects" / "-repo-service-a"
+    project_dir.mkdir(parents=True)
+    transcript = project_dir / "session-1.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "sessionId": "session-1",
+                        "cwd": "/repo/service-a",
+                        "timestamp": "2026-05-27T10:00:00Z",
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "Fix VAT rounding"}]},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "sessionId": "session-1",
+                        "cwd": "/repo/service-a",
+                        "timestamp": "2026-05-27T10:00:05Z",
+                        "type": "assistant",
+                        "message": {"content": "I'll inspect the code."},
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+
+    runner = LocalRunnerClient()
+    rows = runner.list_claude_threads("/repo/service-a", "VAT", limit=10)
+
+    assert rows[0]["id"] == "session-1"
+    assert rows[0]["first_user_message"] == "Fix VAT rounding"
+    assert rows[0]["message_count"] == 2
+    assert rows[0]["transcript_path"] == str(transcript)
+
+
 def test_local_runner_can_find_recent_codex_session_from_state_db(configured_modules, tmp_path, monkeypatch):
     from app.runner.client import LocalRunnerClient
 
@@ -1526,6 +1592,38 @@ def test_remote_runner_can_find_recent_codex_session(monkeypatch, tmp_path):
     )
 
     assert result == "019ce115-d070-7053-b385-870d5e021ea7"
+
+
+def test_remote_runner_can_preview_and_list_claude_history(monkeypatch, tmp_path):
+    from app.runner.client import RemoteRunnerClient
+    from app.runner.server import create_app
+
+    claude_home = tmp_path / ".claude"
+    project_dir = claude_home / "projects" / "-repo-service-a"
+    project_dir.mkdir(parents=True)
+    (project_dir / "session-1.jsonl").write_text(
+        json.dumps(
+            {
+                "sessionId": "session-1",
+                "cwd": "/repo/service-a",
+                "timestamp": "2026-05-27T10:00:00Z",
+                "type": "user",
+                "message": "Fix VAT rounding",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+
+    app = create_app(api_key="secret")
+    client = TestClient(app)
+    _bridge_urlopen(monkeypatch, client, "http://runner")
+
+    runner = RemoteRunnerClient("http://runner", api_key="secret")
+
+    assert runner.build_claude_launch_command("read-only", None) == "claude --permission-mode plan"
+    assert runner.list_claude_threads("/repo/service-a", "VAT", limit=10)[0]["id"] == "session-1"
 
 
 def test_capture_session_logs_prefers_runner_pane_for_running_sessions(configured_modules):

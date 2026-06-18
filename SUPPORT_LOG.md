@@ -40,8 +40,8 @@ Codex can remain the default provider while Claude support is introduced behind 
 ### First implementation slice
 
 1. Add provider metadata to sessions without changing current Codex behavior. Done in the provider-foundation commit.
-2. Add a Claude runner adapter that can detect `claude`, report version/auth status if available, and build a dry-run start command.
-3. Add Claude history discovery for `~/.claude/projects`.
+2. Add a Claude runner adapter that can detect `claude`, report version/auth status if available, and build a dry-run start command. Done in the Claude capability foundation.
+3. Add Claude history discovery for `~/.claude/projects`. Done in the Claude capability foundation.
 4. Add a create-session provider selector in the dashboard, initially defaulting to Codex.
 5. Only after that, add live Claude launch/resume/attach behavior.
 
@@ -59,6 +59,25 @@ The manager now has the first provider boundary:
 - dashboard create/adopt forms expose the provider selector while keeping unsupported providers disabled
 - automation follow-up sessions inherit their parent provider
 - Codex history linking, resume-point lookup, and automatic resume stay explicitly Codex-only
+
+### Claude capability foundation status
+
+The manager now has the first Claude Code planning surface without enabling managed Claude sessions:
+
+- the local runner can inspect whether `claude` is available on the execution host
+- the local runner reports `claude --version` output when available, while leaving auth status as launch-time/unknown
+- the runner can build provider-native Claude launch previews for existing manager profiles:
+  - `read-only` -> `claude --permission-mode plan`
+  - `safe-edit` -> `claude --permission-mode default`
+  - `full-agent` -> `claude --permission-mode acceptEdits`
+- the runner can scan local Claude transcripts under `CLAUDE_HOME/projects` or `~/.claude/projects`
+- the host runner API exposes Claude capability, launch-preview, and history endpoints for Docker dashboard mode
+- the dashboard API exposes Claude capability and history endpoints:
+  - `GET /api/providers/claude/capabilities`
+  - `POST /api/providers/claude/launch-preview`
+  - `GET /api/claude/history`
+- managed/adopted session creation still rejects `provider=claude`
+- live Claude launch, resume, attach, and environment management remain intentionally unimplemented
 
 ### Risk notes
 

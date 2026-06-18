@@ -364,6 +364,11 @@ class HistoryViewDeleteRequest(BaseModel):
     view_id: str = Field(alias="viewId")
 
 
+class ClaudeLaunchPreviewRequest(BaseModel):
+    profile: str = "safe-edit"
+    prompt: str | None = None
+
+
 def _session_or_404(session_id: str):
     session = get_session(session_id)
     if session is None:
@@ -394,6 +399,42 @@ def summary() -> dict:
 @app.get("/api/providers")
 def providers() -> dict:
     return list_providers()
+
+
+@app.get("/api/providers/claude/capabilities")
+def claude_provider_capabilities() -> dict:
+    client = get_runner_client()
+    try:
+        environment = client.inspect_claude_environment()
+        launch_commands = {
+            profile: client.build_claude_launch_command(profile, None)
+            for profile in ("read-only", "safe-edit", "full-agent")
+        }
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "provider": "claude",
+        "status": "planned",
+        "sessionLaunch": False,
+        "historyResume": False,
+        "environmentManagement": False,
+        "environment": environment,
+        "launchCommands": launch_commands,
+    }
+
+
+@app.post("/api/providers/claude/launch-preview")
+def claude_launch_preview(request: ClaudeLaunchPreviewRequest) -> dict:
+    client = get_runner_client()
+    try:
+        command = client.build_claude_launch_command(request.profile, request.prompt)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "provider": "claude",
+        "status": "planned",
+        "launchCommand": command,
+    }
 
 
 @app.get("/api/sessions")
@@ -575,6 +616,16 @@ def codex_history(query: str | None = None, cwd: str | None = None, limit: int =
 def codex_imported_history(query: str | None = None, cwd: str | None = None, limit: int = 20) -> dict:
     client = get_runner_client()
     return {"threads": client.list_imported_codex_sessions(cwd, query, limit=limit)}
+
+
+@app.get("/api/claude/history")
+def claude_history(query: str | None = None, cwd: str | None = None, limit: int = 20) -> dict:
+    client = get_runner_client()
+    try:
+        threads = client.list_claude_threads(cwd, query, limit=limit)
+    except RunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"threads": threads}
 
 
 @app.get("/api/validation-presets")

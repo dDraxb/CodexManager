@@ -72,6 +72,17 @@ class BuildCodexLaunchRequest(BaseModel):
     prompt: str | None = None
 
 
+class BuildClaudeLaunchRequest(BaseModel):
+    profile: str
+    prompt: str | None = None
+
+
+class ClaudeThreadListRequest(BaseModel):
+    cwd: str | None = None
+    query: str | None = None
+    limit: int = 20
+
+
 class ValidationPresetApplyRequest(BaseModel):
     repo_path: str
     preset_id: str
@@ -314,6 +325,29 @@ def create_app(*, api_key: str | None = None) -> FastAPI:
         require_auth(x_runner_api_key)
         launch_command = runner_call(lambda: runner.build_codex_launch_command(request.profile, request.prompt))
         return {"launch_command": launch_command}
+
+    @app.post("/claude/inspect-environment")
+    def inspect_claude_environment(x_runner_api_key: str | None = Header(default=None)) -> dict:
+        require_auth(x_runner_api_key)
+        return runner_call(runner.inspect_claude_environment)
+
+    @app.post("/claude/build-launch-command")
+    def build_claude_launch_command(
+        request: BuildClaudeLaunchRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        launch_command = runner_call(lambda: runner.build_claude_launch_command(request.profile, request.prompt))
+        return {"launch_command": launch_command}
+
+    @app.post("/claude/list-threads")
+    def claude_list_threads(
+        request: ClaudeThreadListRequest,
+        x_runner_api_key: str | None = Header(default=None),
+    ) -> dict:
+        require_auth(x_runner_api_key)
+        threads = runner_call(lambda: runner.list_claude_threads(request.cwd, request.query, request.limit))
+        return {"threads": threads}
 
     @app.post("/ensure-git-repo")
     def ensure_repo(request: EnsureGitRepoRequest, x_runner_api_key: str | None = Header(default=None)) -> dict:

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.runner.contracts import RunnerClient, RunnerError
+from app.services.claude_code import build_claude_launch_command, inspect_claude_environment, list_claude_threads
 from app.services.codex_agent_config import (
     CodexAgentConfigError,
     read_codex_agent_config,
@@ -103,6 +104,30 @@ class LocalRunnerClient(RunnerClient):
         if prompt:
             command.append(json.dumps(prompt))
         return " ".join(command)
+
+    def inspect_claude_environment(self) -> dict:
+        return inspect_claude_environment()
+
+    def build_claude_launch_command(self, profile: str, prompt: str | None) -> str:
+        try:
+            return build_claude_launch_command(profile, prompt)
+        except ValueError as exc:
+            raise RunnerError(str(exc)) from exc
+
+    def list_claude_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        return [
+            {
+                "id": item.id,
+                "cwd": item.cwd,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+                "title": item.title,
+                "first_user_message": item.first_user_message,
+                "transcript_path": item.transcript_path,
+                "message_count": item.message_count,
+            }
+            for item in list_claude_threads(cwd=cwd, query=query, limit=limit)
+        ]
 
     def ensure_git_repo(self, repo_path: str, auto_init: bool = False) -> None:
         try:
@@ -563,6 +588,24 @@ class RemoteRunnerClient(RunnerClient):
     def build_codex_launch_command(self, profile: str, prompt: str | None) -> str:
         payload = self._post("/build-codex-launch-command", {"profile": profile, "prompt": prompt})
         return str(payload["launch_command"])
+
+    def inspect_claude_environment(self) -> dict:
+        return self._post("/claude/inspect-environment", {})
+
+    def build_claude_launch_command(self, profile: str, prompt: str | None) -> str:
+        payload = self._post("/claude/build-launch-command", {"profile": profile, "prompt": prompt})
+        return str(payload["launch_command"])
+
+    def list_claude_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        payload = self._post(
+            "/claude/list-threads",
+            {
+                "cwd": cwd,
+                "query": query,
+                "limit": limit,
+            },
+        )
+        return [dict(item) for item in payload["threads"]]
 
     def ensure_git_repo(self, repo_path: str, auto_init: bool = False) -> None:
         self._post("/ensure-git-repo", {"repo_path": repo_path, "auto_init": auto_init})

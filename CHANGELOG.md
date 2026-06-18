@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-18
+
+### Added
+- Added Claude Code capability discovery, launch-preview command building, local transcript history scanning, and runner/API endpoints while keeping Claude managed-session launch disabled.
+
+### Verified
+- `backend/.venv/bin/pytest backend/tests -q`
+- `npm run build`
+
 ## 2026-05-27
 
 ### Added

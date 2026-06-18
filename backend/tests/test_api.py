@@ -84,6 +84,63 @@ def test_api_rejects_unimplemented_provider_for_sessions(configured_modules, git
     assert "Claude Code provider is registered" in response.json()["detail"]
 
 
+def test_api_exposes_claude_provider_capabilities_without_enabling_launch(configured_modules, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    class ClaudeRunner:
+        def inspect_claude_environment(self):
+            return {"provider": "claude", "available": True, "version": "1.2.3"}
+
+        def build_claude_launch_command(self, profile, prompt):
+            return f"claude --permission-mode {profile}"
+
+    monkeypatch.setattr(server, "get_runner_client", lambda: ClaudeRunner())
+
+    response = client.get("/api/providers/claude/capabilities")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "claude"
+    assert payload["status"] == "planned"
+    assert payload["sessionLaunch"] is False
+    assert payload["environment"]["available"] is True
+    assert payload["launchCommands"]["safe-edit"] == "claude --permission-mode safe-edit"
+
+
+def test_api_exposes_claude_history_from_runner(configured_modules, monkeypatch):
+    from app.api import server
+
+    importlib.reload(server)
+    client = TestClient(server.app)
+
+    class ClaudeRunner:
+        def list_claude_threads(self, cwd, query, limit=20):
+            assert cwd == "/repo/service-a"
+            assert query == "vat"
+            return [
+                {
+                    "id": "session-1",
+                    "cwd": cwd,
+                    "created_at": 1,
+                    "updated_at": 2,
+                    "title": "VAT fix",
+                    "first_user_message": "VAT fix",
+                    "transcript_path": "/tmp/session-1.jsonl",
+                    "message_count": 3,
+                }
+            ]
+
+    monkeypatch.setattr(server, "get_runner_client", lambda: ClaudeRunner())
+
+    response = client.get("/api/claude/history?cwd=/repo/service-a&query=vat")
+
+    assert response.status_code == 200
+    assert response.json()["threads"][0]["id"] == "session-1"
+
+
 def test_api_handoffs_automation_and_history(configured_modules, git_repo):
     from app.api import server
 

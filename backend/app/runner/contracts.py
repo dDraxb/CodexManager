@@ -14,6 +14,15 @@ class RunnerClient(Protocol):
     def build_codex_launch_command(self, profile: str, prompt: str | None) -> str:
         """Build the command used to launch Codex in the execution environment."""
 
+    def inspect_claude_environment(self) -> dict:
+        """Return Claude Code CLI capability metadata from the execution environment."""
+
+    def build_claude_launch_command(self, profile: str, prompt: str | None) -> str:
+        """Build the provider-native Claude Code launch command without starting it."""
+
+    def list_claude_threads(self, cwd: str | None, query: str | None, limit: int = 20) -> list[dict]:
+        """Return Claude Code local transcript metadata discovered under CLAUDE_HOME."""
+
     def ensure_git_repo(self, repo_path: str, auto_init: bool = False) -> None:
         """Ensure the given path is a usable git repository."""
 
